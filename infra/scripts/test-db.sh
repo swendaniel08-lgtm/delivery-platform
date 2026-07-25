@@ -14,7 +14,7 @@ for _ in $(seq 1 40); do $D exec ledgerdb pg_isready -U postgres -q 2>/dev/null 
 for _ in $(seq 1 40); do $D exec orderdb  pg_isready -U postgres -q 2>/dev/null && break; sleep 2; done
 
 fail=0
-for f in apps/svc-payment/test/ledger-service.spec.ts apps/svc-order/test/outbox-timers.spec.ts apps/svc-dispatch/test/dispatch-redis.spec.ts; do
+for f in apps/svc-payment/test/ledger-service.spec.ts apps/svc-order/test/outbox-timers.spec.ts apps/svc-dispatch/test/dispatch-redis.spec.ts apps/e2e/test/order-flow.e2e.spec.ts; do
   echo "── $f"
   out=$(npx tsx "$f" 2>&1)
   echo "$out" | grep -E "^# (tests|pass|fail)" | sed 's/^/   /'

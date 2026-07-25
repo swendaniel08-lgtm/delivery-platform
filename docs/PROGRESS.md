@@ -14,12 +14,15 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
-| **P3 — Delivery engine** | 7–10 | 🟡 Sprints 7–8 done | █████░░░░░ 50% |
+| **P3 — Delivery engine** | 7–10 | 🟡 Sprints 7–9 done | ████████░░ 75% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P2 complete + Sprints 7–8. 261 specs green (229 unit + 32 integration).**
-**Currently active: Sprint 9 — HTTP wiring (recommended) or Tracking.**
+**Overall: P0–P2 complete + Sprints 7–9. 268 specs green (229 unit + 39 integration incl. 7 end-to-end).**
+**Currently active: Sprint 10 — Tracking + COD.**
+
+**🎉 The system now RUNS.** A real NestJS service over HTTP drives an order
+from checkout to settlement against real Postgres.
 
 ---
 
@@ -185,10 +188,27 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Redis GEO nearest-first, claim TTL so a stuck leg self-recovers
 - [x] `dispatch.spec` 25/25, `dispatch-redis.spec` 4/4
 
-### Sprint 9 — Tracking
-- [ ] GPS ingest, Socket.IO fanout
-- [ ] Google ETA + tiered cache **(closes issue 8)** — `maps.spec`
-- [ ] Geofence auto-transitions, customer live map
+### Sprint 9 — NestJS wiring ✅ **COMPLETE**
+*Re-scoped from Tracking: 6,000 lines of domain logic had no HTTP layer.*
+- [x] NestJS 11 + Fastify verified booting in this environment
+- [x] `libs/platform/http`: RFC-7807 exception filter, correlation middleware
+- [x] `order-svc` HTTP: create, fetch, apply event, history, legs, health/ready
+- [x] `OrderModule.forRoot(pool)` dynamic module (Nest DI is per-module)
+- [x] Row-level `SELECT ... FOR UPDATE` on transitions
+- [x] Settlement split computed and written in the SAME statement as
+      `delivered`, so the balance constraint never sees an invalid row
+- [x] **`order-flow.e2e.spec` 7/7 — real HTTP, real Postgres:**
+      checkout → payment → vendor accept → prepare → ready → assign →
+      pickup → arrive → deliver → settle, with ledger balances verified
+      and global drift = 0
+- [x] Verified live: vendor timer created on payment and cancelled on accept,
+      9 history rows, 8+ outbox events, RFC-7807 errors with correlation IDs,
+      concurrent double-accept → exactly one 201 and one 409
+
+### Sprint 10 — Tracking + COD
+- [ ] GPS ingest, Socket.IO fanout, geofence auto-transitions
+- [ ] COD obligation ledger **(closes issue 2)** — `cod.spec`
+- [ ] Remittance, balance gating, strikes
 
 ### Sprint 10 — COD
 - [ ] Obligation ledger at delivery **(closes issue 2)** — `cod.spec`
