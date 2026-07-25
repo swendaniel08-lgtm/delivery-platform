@@ -14,12 +14,12 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
-| **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
+| **P3 — Delivery engine** | 7–10 | 🟡 Sprint 7 done | ███░░░░░░░ 25% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0, P1, P2 complete (Sprints 1–6). 184 specs green (168 unit + 16 DB integration).**
-**Currently active: Sprint 7 — Order engine & state machines.**
+**Overall: P0–P2 complete + Sprint 7. 232 specs green (204 unit + 28 DB integration).**
+**Currently active: Sprint 8 — Dispatch.**
 
 ---
 
@@ -37,15 +37,15 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 6 | Client callback as payment truth | `webhook.spec` | 6 | ✅ **closed** — signed webhook only, 24/24 |
 | 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ primitive proven · full test S8 |
 | 8 | Directions API cost bomb | `maps.spec` | 3 | ✅ **closed** — 89.7% reduction, 3 calls/order |
-| 9 | In-process timers die on deploy | `timers.spec` | 7 | [ ] |
-| 10 | Laundry/errand break one-delivery model | — (schema) | 7 | [ ] |
+| 9 | In-process timers die on deploy | `outbox-timers.spec` | 7 | ✅ **closed** — DB timers, SKIP LOCKED |
+| 10 | Laundry/errand break one-delivery model | `outbox-timers.spec` | 7 | ✅ **closed** — DeliveryLeg from migration 001 |
 | 11 | search reads catalogue replica | — (merge) | 3 | ✅ **closed** — own tsvector index |
 | 12 | No admin audit trail | — (schema) | 13 | [ ] |
 | 13 | No payout failure handling | `webhook.spec` | 6 | ✅ **closed** — saga w/ compensation |
 | 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**10 of 15 closed.**
+**12 of 15 closed.**
 
 ---
 
