@@ -18,8 +18,11 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete (Sprints 1–14). 389 specs green (309 unit + 80 integration incl. 7 end-to-end).**
-**Currently active: Sprint 15–16 — Hardening.**
+**Overall: P0–P4 complete + outbox relay. 398 specs green (309 unit + 89 integration incl. 16 end-to-end).**
+
+**Services now genuinely communicate** — an event written by order-svc is
+received by another service over real RabbitMQ.
+**Currently active: Sprint 15 — Plumbing (relay done, gateway/BFFs next).**
 
 **All 15 spec issues closed. Backend + admin dashboard build and run.**
 
@@ -282,7 +285,21 @@ Paystack's sandbox — see "Verification pending" below.*
       (verified: catalogue_editor sees no Payments, dispatcher no Ledger)
 - [x] `audit.spec` 21/21
 
-### Sprint 15–16 — Hardening
+### Sprint 15 — Plumbing 🟡 IN PROGRESS
+- [x] **Outbox relay → RabbitMQ** — the missing link between services
+      - publisher confirms, so rows are never marked sent when dropped
+      - `FOR UPDATE SKIP LOCKED`: two relays never double-publish (tested)
+      - ordered per aggregate, adaptive polling, retry then **park** for an operator
+      - topic exchange + per-consumer DLQ so a poison message cannot block a queue
+      - consumer-side dedupe keyed on (group, eventId)
+- [x] `outbox-relay.e2e.spec` 9/9 vs real Postgres + real RabbitMQ
+- [ ] Gateway (JWT, rate limit, routing)
+- [ ] 4 BFFs
+- [ ] HTTP for the remaining 9 services
+- [ ] WebSocket server for tracking/chat
+- [ ] `media-svc`
+
+### Sprint 16 — Hardening
 - [ ] k6 load test, broker chaos test
 - [ ] Fraud controls **(closes issue 15)**
 - [ ] Security review, reconciliation drill
@@ -292,7 +309,21 @@ Paystack's sandbox — see "Verification pending" below.*
 
 ## P5 — Launch (Sprints 15–18)
 
-### Sprint 15–16 — Hardening
+### Sprint 15 — Plumbing 🟡 IN PROGRESS
+- [x] **Outbox relay → RabbitMQ** — the missing link between services
+      - publisher confirms, so rows are never marked sent when dropped
+      - `FOR UPDATE SKIP LOCKED`: two relays never double-publish (tested)
+      - ordered per aggregate, adaptive polling, retry then **park** for an operator
+      - topic exchange + per-consumer DLQ so a poison message cannot block a queue
+      - consumer-side dedupe keyed on (group, eventId)
+- [x] `outbox-relay.e2e.spec` 9/9 vs real Postgres + real RabbitMQ
+- [ ] Gateway (JWT, rate limit, routing)
+- [ ] 4 BFFs
+- [ ] HTTP for the remaining 9 services
+- [ ] WebSocket server for tracking/chat
+- [ ] `media-svc`
+
+### Sprint 16 — Hardening
 - [ ] k6 load test, broker chaos test
 - [ ] Fraud controls **(closes issue 15)**
 - [ ] Security review, Ghana network conditions, reconciliation drill
