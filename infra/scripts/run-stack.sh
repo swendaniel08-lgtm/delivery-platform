@@ -22,6 +22,7 @@ mkdir -p "$LOG_DIR"
 SERVICES=(
   "identity:apps/svc-identity/src/main.ts:SVC_IDENTITY_PORT:3001"
   "catalogue:apps/svc-catalogue/src/main.ts:SVC_CATALOGUE_PORT:3002"
+  "order:apps/svc-order/src/main.ts:SVC_ORDER_PORT:3003"
   "pricing:apps/svc-pricing/src/main.ts:SVC_PRICING_PORT:3004"
   "dispatch:apps/svc-dispatch/src/main.ts:SVC_DISPATCH_PORT:3005"
   "tracking:apps/svc-tracking/src/main.ts:SVC_TRACKING_PORT:3006"
@@ -58,7 +59,7 @@ stop_all() {
     rm -f "$f"
   done
   # Anything still holding one of our ports is an orphan from an earlier run.
-  for port in 3000 3001 3002 3004 3005 3006 3007 3101 3102 3103; do
+  for port in 3000 3001 3002 3003 3004 3005 3006 3007 3101 3102 3103; do
     local holder; holder=$(ss -ltnp 2>/dev/null | grep -oP "(?<=:)$port\\b.*pid=\\K[0-9]+" | head -1)
     [ -n "${holder:-}" ] && kill -TERM "$holder" 2>/dev/null
   done
@@ -124,8 +125,15 @@ for entry in "${SERVICES[@]}"; do
   if curl -s -m 3 "http://127.0.0.1:$port/health" | grep -q '"status":"ok"'; then
     printf '  \033[32mOK\033[0m   %-14s http://127.0.0.1:%s\n' "$name" "$port"
   else
-    printf '  \033[31mDOWN\033[0m %-14s (see %s)\n' "$name" "$LOG_DIR/$name.log"
-    failed=$((failed+1))
+    # A configuration refusal (exit 78) is a deliberate answer, not a
+    # crash — order-svc will not start without DATABASE_URL, by design.
+    if grep -q "CONFIGURATION ERROR" "$LOG_DIR/$name.log" 2>/dev/null; then
+      reason=$(grep -A1 "CONFIGURATION ERROR" "$LOG_DIR/$name.log" | tail -1 | sed 's/^ *//' | cut -c1-70)
+      printf '  \033[33mSKIP\033[0m %-14s %s\n' "$name" "$reason"
+    else
+      printf '  \033[31mDOWN\033[0m %-14s (see %s)\n' "$name" "$LOG_DIR/$name.log"
+      failed=$((failed+1))
+    fi
   fi
 done
 

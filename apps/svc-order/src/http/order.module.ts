@@ -8,7 +8,7 @@
 
 import 'reflect-metadata';
 import {
-  Module, Controller, Get, Post, Body, Param, Headers, Inject, Injectable,
+  Module, Controller, Get, Post, Body, Param, Query, Headers, Inject, Injectable,
   type MiddlewareConsumer, type NestModule,
 } from '@nestjs/common';
 import { CorrelationMiddleware } from '../../../../libs/platform/src/http/problem-filter.ts';
@@ -19,8 +19,13 @@ import {
 } from '../state/machine.ts';
 import { NotFoundError, ValidationError, ConflictError } from '../../../../libs/platform/src/errors.ts';
 
+import {
+  OrderQueries, nextLegState, orderEventFor, ACTIVE_ORDER_STATES,
+} from './queries.ts';
+
 export const PG = Symbol('PG_POOL');
 export const ORDER_SERVICE = Symbol('ORDER_SERVICE');
+export const ORDER_QUERIES = Symbol('ORDER_QUERIES');
 
 /** Vendor commission in basis points, mirroring svc-pricing (PDF §6). */
 const COMMISSION_BPS: Record<string, number> = {
@@ -269,6 +274,147 @@ export class OrderController {
   }
 }
 
+/**
+ * Read + leg endpoints.
+ *
+ * Separate controller because these are the routes the BFFs poll. Keeping
+ * them apart from the write path makes it obvious which handlers are on the
+ * hot path and must stay cheap.
+ */
+@Controller()
+export class OrderQueryController {
+  constructor(
+    @Inject(ORDER_QUERIES) private readonly q: OrderQueries,
+    @Inject(ORDER_SERVICE) private readonly orders: OrderService,
+    @Inject(PG) private readonly pool: Pool,
+  ) {}
+
+  /**
+   * List orders. Exactly one of customerId or storeId is required — an
+   * unscoped list would be both a data leak and an unbounded query.
+   */
+  @Get('orders')
+  async list(@Query() query: any) {
+    const customerId = query.customerId as string | undefined;
+    const storeId = query.storeId as string | undefined;
+
+    if (!customerId && !storeId) {
+      throw new ValidationError({
+        customerId: ['provide customerId or storeId'],
+      });
+    }
+    if (customerId && storeId) {
+      throw new ValidationError({
+        customerId: ['provide only one of customerId or storeId'],
+      });
+    }
+
+    if (customerId) {
+      return {
+        orders: await this.q.forCustomer(customerId, {
+          active: query.active === 'true' || query.active === true,
+          ...(query.limit ? { limit: Number(query.limit) } : {}),
+        }),
+      };
+    }
+
+    const states = typeof query.states === 'string' && query.states.length
+      ? query.states.split(',')
+      : ACTIVE_ORDER_STATES;
+    return { orders: await this.q.forStore(storeId!, states) };
+  }
+
+  /** The rider's current job, or null when they are free. */
+  @Get('legs/active')
+  async activeLeg(@Query() query: any) {
+    const riderId = query.riderId as string | undefined;
+    if (!riderId) throw new ValidationError({ riderId: ['is required'] });
+    return { leg: await this.q.activeLegForRider(riderId) };
+  }
+
+  /**
+   * Advance a delivery leg.
+   *
+   * The leg transition and the order transition it implies are written in
+   * ONE database transaction. Doing them separately means a crash between
+   * the two leaves a leg marked delivered against an order that is still
+   * "in transit" — and no automatic way to tell which is right.
+   */
+  @Post('legs/:legId/events')
+  async legEvent(
+    @Param('legId') legId: string,
+    @Body() body: any,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    const event = String(body?.event ?? '');
+    if (!event) throw new ValidationError({ event: ['is required'] });
+
+    const c = await this.pool.connect();
+    try {
+      await c.query('BEGIN');
+      // Lock the leg: two taps on a flaky network must not both transition.
+      const r = await c.query(
+        `SELECT dl.*, o.machine
+           FROM delivery_legs dl JOIN orders o ON o.id = dl.order_id
+          WHERE dl.id = $1 FOR UPDATE OF dl`, [legId],
+      );
+      const leg = r.rows[0];
+      if (!leg) throw new NotFoundError('Assignment');
+
+      const to = nextLegState(leg.state, event);
+      if (!to) {
+        throw new ConflictError(
+          `cannot ${event} a leg that is ${leg.state}`,
+        );
+      }
+
+      const photoUrl = body?.photoUrl ? String(body.photoUrl) : null;
+      if (event === 'rider_deliver' && !photoUrl) {
+        // Proof is the evidence in a "never arrived" dispute. Enforced here
+        // as well as in the BFF because the BFF is not a trust boundary.
+        throw new ValidationError({ photoUrl: ['proof of delivery is required'] });
+      }
+
+      // `state` is an enum column but the CASE comparisons are text, and
+      // Postgres refuses to deduce one type for a parameter used as both.
+      // Casting each use explicitly is the fix — without it every leg
+      // transition 500s with "inconsistent types deduced for parameter $2".
+      await c.query(
+        `UPDATE delivery_legs
+            SET state = $2::leg_state,
+                picked_up_at = CASE WHEN $2::text = 'picked_up'
+                  THEN now() ELSE picked_up_at END,
+                completed_at = CASE WHEN $2::text = 'completed'
+                  THEN now() ELSE completed_at END,
+                proof_photo_urls = CASE WHEN $3::text IS NOT NULL
+                  THEN proof_photo_urls || to_jsonb($3::text) ELSE proof_photo_urls END
+          WHERE id = $1`,
+        [legId, to, photoUrl],
+      );
+      await c.query('COMMIT');
+
+      // The order transition runs in its own transaction, which already
+      // writes history and outbox rows atomically. A leg event with no
+      // matching order event (a multi-leg laundry pickup) is normal.
+      const orderEvent = orderEventFor(event, leg.machine);
+      let orderResult: unknown = null;
+      if (orderEvent) {
+        orderResult = await this.orders
+          .apply(leg.order_id, orderEvent as any,
+            { type: 'rider', id: leg.assigned_rider_id }, correlationId)
+          .catch((e: Error) => ({ skipped: e.message }));
+      }
+
+      return { legId, event, from: leg.state, to, order: orderResult };
+    } catch (e) {
+      await c.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+}
+
 @Controller('health')
 export class HealthController {
   constructor(@Inject(PG) private readonly pool: Pool) {}
@@ -307,12 +453,13 @@ export class OrderModule implements NestModule {
   static forRoot(pool: Pool) {
     return {
       module: OrderModule,
-      controllers: [OrderController, HealthController],
+      controllers: [OrderController, OrderQueryController, HealthController],
       providers: [
         { provide: PG, useValue: pool },
         { provide: ORDER_SERVICE, useFactory: (p: Pool) => new OrderService(p), inject: [PG] },
+        { provide: ORDER_QUERIES, useFactory: (p: Pool) => new OrderQueries(p), inject: [PG] },
       ],
-      exports: [ORDER_SERVICE, PG],
+      exports: [ORDER_SERVICE, ORDER_QUERIES, PG],
     };
   }
 }
