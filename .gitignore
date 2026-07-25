@@ -17,3 +17,6 @@ build/
 .pub/
 .next/
 next-env.d.ts
+
+# Local process manager state (run-stack.sh)
+.run/

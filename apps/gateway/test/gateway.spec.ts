@@ -46,12 +46,32 @@ describe('routing', () => {
     assert.throws(() => matchRoute('/nope'), NotFoundError);
   });
 
-  test('the upstream path strips the gateway prefix', async () => {
+  test('the upstream path is rewritten to what the service actually serves', async () => {
     const { gw, tokens } = harness();
     const pair = await tokens.issue({ userId: 'u1', role: 'customer' });
-    const d = await gw.handle(req({ path: '/api/customer/orders/123', headers: bearer(pair.accessToken) }));
-    assert.match(d.target, /\/orders\/123$/);
-    assert.equal(d.target.includes('/api/customer'), false);
+
+    // A BFF mounts '/api/customer' itself, so the prefix is PRESERVED.
+    const bff = await gw.handle(req({
+      path: '/api/customer/orders/123', headers: bearer(pair.accessToken),
+    }));
+    assert.match(bff.target, /\/api\/customer\/orders\/123$/);
+  });
+
+  test('identity routes are rewritten from /api/auth to /auth', async () => {
+    const { gw } = harness();
+    // The public path and the service's own path are different: clients call
+    // '/api/auth/otp/request' but identity-svc serves '/auth/otp/request'.
+    // Stripping the whole prefix asks for '/otp/request', which 404s — this
+    // was a real bug found by running the stack end to end.
+    const d = await gw.handle(req({ path: '/api/auth/otp/request' }));
+    assert.match(d.target, /\/auth\/otp\/request$/);
+    assert.equal(d.target.includes('/api/auth'), false);
+  });
+
+  test('webhooks reach the payment service signature route', async () => {
+    const { gw } = harness();
+    const d = await gw.handle(req({ path: '/api/webhooks/paystack' }));
+    assert.match(d.target, /\/payments\/webhooks\/paystack$/);
   });
 });
 

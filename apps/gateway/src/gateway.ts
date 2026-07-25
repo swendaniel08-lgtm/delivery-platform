@@ -28,15 +28,31 @@ export interface RouteRule {
   public?: boolean;
   /** Roles permitted at the edge. Fine-grained checks live downstream. */
   roles?: AccessClaims['role'][];
+  /**
+   * What the upstream sees in place of `prefix`.
+   *
+   * The public path and the service's own path are NOT the same thing:
+   * clients call `/api/auth/otp/request`, but identity-svc serves
+   * `/auth/otp/request`. Without this the gateway strips the whole prefix
+   * and asks for `/otp/request`, which 404s.
+   *
+   * Defaults to '' (strip the prefix entirely), which is right for the
+   * BFFs because they mount their own `/api/<app>` paths.
+   */
+  rewriteTo?: string;
 }
 
 export const ROUTES: RouteRule[] = [
-  { prefix: '/api/auth',     target: 'http://svc-identity:3001', public: true },
-  { prefix: '/api/webhooks', target: 'http://svc-payment:3007',  public: true },
-  { prefix: '/api/customer', target: 'http://bff-customer:3101', roles: ['customer'] },
-  { prefix: '/api/vendor',   target: 'http://bff-vendor:3102',   roles: ['vendor_owner', 'vendor_staff'] },
-  { prefix: '/api/rider',    target: 'http://bff-rider:3103',    roles: ['rider'] },
-  { prefix: '/api/admin',    target: 'http://bff-admin:3104',    roles: ['admin'] },
+  { prefix: '/api/auth',     target: 'http://svc-identity:3001', public: true, rewriteTo: '/auth' },
+  // Every signed-in principal manages their OWN profile; identity-svc
+  // scopes each request to the token's subject.
+  { prefix: '/api/users',    target: 'http://svc-identity:3001', roles: ['customer', 'vendor_owner', 'vendor_staff', 'rider', 'admin'], rewriteTo: '/users' },
+  { prefix: '/api/webhooks', target: 'http://svc-payment:3007',  public: true, rewriteTo: '/payments/webhooks' },
+  // The BFFs mount '/api/<app>' themselves, so the prefix is preserved.
+  { prefix: '/api/customer', target: 'http://bff-customer:3101', roles: ['customer'], rewriteTo: '/api/customer' },
+  { prefix: '/api/vendor',   target: 'http://bff-vendor:3102',   roles: ['vendor_owner', 'vendor_staff'], rewriteTo: '/api/vendor' },
+  { prefix: '/api/rider',    target: 'http://bff-rider:3103',    roles: ['rider'], rewriteTo: '/api/rider' },
+  { prefix: '/api/admin',    target: 'http://bff-admin:3104',    roles: ['admin'], rewriteTo: '/api/admin' },
 ];
 
 export function matchRoute(path: string, routes: RouteRule[] = ROUTES): RouteRule {
@@ -198,7 +214,7 @@ export class Gateway {
     return {
       allow: true,
       route,
-      target: route.target + req.path.slice(route.prefix.length),
+      target: route.target + (route.rewriteTo ?? '') + req.path.slice(route.prefix.length),
       correlationId,
       forwardHeaders,
       principal,
