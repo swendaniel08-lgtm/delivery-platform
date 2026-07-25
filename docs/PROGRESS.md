@@ -410,7 +410,19 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Earnings shown NET of commission everywhere
 - [x] Double-tap protection via a pending set
 - [x] `order_queue_controller_test` 29/29, `dashboard_screen_test` 19/19
-- [ ] Rider app screens
+- [x] **Rider app** — exactly ONE next action at any moment; navigation
+      target follows the leg and the landmark appears only after pickup
+- [x] COD banner permanently visible; holding too MUCH blocks cash orders,
+      holding too LONG blocks all work — the difference between a limit and
+      a debt
+- [x] Completing a delivery always requires a proof photo; a cash delivery
+      additionally requires confirming the amount, both enforced in state
+- [x] A dispatch offer takes over the whole screen for its 30 seconds, shows
+      only the drop-off AREA, and refuses acceptance if the rider is at the
+      cash ceiling rather than failing after the tap
+- [x] `rider_controller_test` 29/29, `rider_home_screen_test` 23/23
+- [x] **Third real layout overflow caught** — the cash banner header ran off
+      narrow screens
 
 ### Sprint 17 — Missing service schemas ✅
 - [x] **svc-dispatch**: rider availability with PostGIS, broadcast offers,
@@ -563,7 +575,19 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Earnings shown NET of commission everywhere
 - [x] Double-tap protection via a pending set
 - [x] `order_queue_controller_test` 29/29, `dashboard_screen_test` 19/19
-- [ ] Rider app screens
+- [x] **Rider app** — exactly ONE next action at any moment; navigation
+      target follows the leg and the landmark appears only after pickup
+- [x] COD banner permanently visible; holding too MUCH blocks cash orders,
+      holding too LONG blocks all work — the difference between a limit and
+      a debt
+- [x] Completing a delivery always requires a proof photo; a cash delivery
+      additionally requires confirming the amount, both enforced in state
+- [x] A dispatch offer takes over the whole screen for its 30 seconds, shows
+      only the drop-off AREA, and refuses acceptance if the rider is at the
+      cash ceiling rather than failing after the tap
+- [x] `rider_controller_test` 29/29, `rider_home_screen_test` 23/23
+- [x] **Third real layout overflow caught** — the cash banner header ran off
+      narrow screens
 
 ### Sprint 17 — Missing service schemas ✅
 - [x] **svc-dispatch**: rider availability with PostGIS, broadcast offers,
