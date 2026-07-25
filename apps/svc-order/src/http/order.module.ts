@@ -17,6 +17,7 @@ import {
   transition, machineFor, isTerminal, availableEvents,
   type Machine, type OrderState, type OrderEvent,
 } from '../state/machine.ts';
+import { createHash } from 'node:crypto';
 import { NotFoundError, ValidationError, ConflictError } from '../../../../libs/platform/src/errors.ts';
 
 import {
@@ -111,6 +112,76 @@ export class OrderService {
       return order;
     } catch (e) { await c.query('ROLLBACK'); throw e; }
     finally { c.release(); }
+  }
+
+  /**
+   * Create an order at most ONCE per (idempotency key, customer).
+   *
+   * The unique index on `idempotency_keys` is what actually enforces this:
+   * two replicas handling the same retry both attempt the INSERT and
+   * exactly one wins. A SELECT-then-INSERT would lose that race, and losing
+   * it means a customer is charged twice.
+   */
+  async createIdempotent(
+    input: Parameters<OrderService['create']>[0] & { customerId: string },
+    idempotencyKey: string,
+    requestHash: string,
+  ): Promise<{ order: OrderRow; replayed: boolean }> {
+    const claim = await this.pool.query(
+      `INSERT INTO idempotency_keys (key, actor_id, endpoint, request_hash)
+       VALUES ($1, $2, 'POST /orders', $3)
+       ON CONFLICT (key, actor_id, endpoint) DO NOTHING
+       RETURNING key`,
+      [idempotencyKey, input.customerId, requestHash],
+    );
+
+    if (claim.rowCount === 0) {
+      // Someone got here first — this request is a retry.
+      const prior = await this.pool.query<{
+        order_id: string | null; request_hash: string;
+      }>(
+        `SELECT order_id, request_hash FROM idempotency_keys
+          WHERE key = $1 AND actor_id = $2 AND endpoint = 'POST /orders'`,
+        [idempotencyKey, input.customerId],
+      );
+      const row = prior.rows[0]!;
+
+      // Same key, DIFFERENT body. Returning the first order would hide a
+      // real client bug and deliver food nobody ordered.
+      if (row.request_hash !== requestHash) {
+        throw new ConflictError(
+          'This Idempotency-Key was already used for a different order',
+        );
+      }
+
+      if (!row.order_id) {
+        // The original attempt claimed the key and then failed before the
+        // order existed. Ask the client to retry with a NEW key rather than
+        // guessing, because we cannot tell whether it is still in flight.
+        throw new ConflictError('A request with this key is still in progress');
+      }
+      return { order: await this.get(row.order_id), replayed: true };
+    }
+
+    try {
+      const order = await this.create(input);
+      await this.pool.query(
+        `UPDATE idempotency_keys SET order_id = $3
+          WHERE key = $1 AND actor_id = $2 AND endpoint = 'POST /orders'`,
+        [idempotencyKey, input.customerId, order.id],
+      );
+      return { order, replayed: false };
+    } catch (err) {
+      // Release the key so an honest retry can succeed. Leaving it claimed
+      // would lock the customer out of ordering with that key forever.
+      await this.pool.query(
+        `DELETE FROM idempotency_keys
+          WHERE key = $1 AND actor_id = $2 AND endpoint = 'POST /orders'
+            AND order_id IS NULL`,
+        [idempotencyKey, input.customerId],
+      ).catch(() => {});
+      throw err;
+    }
   }
 
   /**
@@ -220,12 +291,16 @@ export class OrderController {
   constructor(@Inject(ORDER_SERVICE) private readonly orders: OrderService) {}
 
   @Post()
-  async create(@Body() body: any) {
+  async create(
+    @Body() body: any,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
     if (!body?.customerId) throw new ValidationError({ customerId: ['is required'] });
     if (!Array.isArray(body.legs) || body.legs.length === 0) {
       throw new ValidationError({ legs: ['at least one delivery leg is required'] });
     }
-    const order = await this.orders.create({
+
+    const input = {
       customerId: body.customerId,
       storeId: body.storeId,
       service: body.service,
@@ -239,8 +314,18 @@ export class OrderController {
         pickup: l.pickup, dropoff: l.dropoff,
         feePesewas: BigInt(l.feePesewas ?? 0),
       })),
-    });
-    return serialise(order);
+    };
+
+    // A retry on a dropped connection must return the ORIGINAL order, not
+    // create a second one the customer also pays for.
+    if (idempotencyKey) {
+      const { order, replayed } = await this.orders.createIdempotent(
+        input, idempotencyKey, hashRequest(body),
+      );
+      return { ...serialise(order), replayed };
+    }
+
+    return serialise(await this.orders.create(input));
   }
 
   @Get(':id')
@@ -424,6 +509,27 @@ export class HealthController {
     await this.pool.query('SELECT 1');
     return { status: 'ready' };
   }
+}
+
+/**
+ * Fingerprint of the request, so a reused key with a DIFFERENT body is
+ * caught rather than silently returning the wrong order.
+ *
+ * Keys are sorted before hashing: JSON key order is not stable across
+ * clients, and two identical carts must hash the same.
+ */
+function hashRequest(body: unknown): string {
+  const stable = (v: any): any => {
+    if (Array.isArray(v)) return v.map(stable);
+    if (v && typeof v === 'object') {
+      return Object.keys(v).sort().reduce<Record<string, unknown>>((acc, k) => {
+        acc[k] = stable(v[k]);
+        return acc;
+      }, {});
+    }
+    return v;
+  };
+  return createHash('sha256').update(JSON.stringify(stable(body))).digest('hex');
 }
 
 /** bigint columns come back as strings from pg; keep them strings on the wire. */

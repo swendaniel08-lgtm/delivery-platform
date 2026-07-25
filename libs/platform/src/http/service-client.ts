@@ -14,7 +14,7 @@
  *      error is an untyped `Error`.
  */
 
-import { UpstreamError } from '../errors.ts';
+import { AppError, UpstreamError } from '../errors.ts';
 
 export interface ServiceCallOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -74,17 +74,29 @@ export class ServiceClient {
       const parsed = text ? safeJson(text) : {};
 
       if (!res.ok) {
-        // Pass the upstream's own problem details through where we can — the
-        // app shows a real reason instead of "something went wrong".
-        throw new UpstreamError(
-          this.cfg.name,
-          (parsed as any)?.detail ?? (parsed as any)?.title
-            ?? `${this.cfg.name} returned ${res.status}`,
-        );
+        const detail = (parsed as any)?.detail ?? (parsed as any)?.title
+          ?? `${this.cfg.name} returned ${res.status}`;
+
+        // A 4xx from an upstream is the CLIENT's fault, not a gateway
+        // failure, so it must keep its status. Collapsing "this
+        // Idempotency-Key was already used" into a 502 tells the app to
+        // retry a request that will never succeed.
+        if (res.status >= 400 && res.status < 500) {
+          throw new AppError(
+            res.status,
+            (parsed as any)?.type?.split('/').pop() ?? 'upstream-rejected',
+            (parsed as any)?.title ?? 'Request rejected',
+            detail,
+            (parsed as any)?.errors ? { errors: (parsed as any).errors } : {},
+          );
+        }
+        throw new UpstreamError(this.cfg.name, detail);
       }
       return parsed as T;
     } catch (err) {
-      if (err instanceof UpstreamError) throw err;
+      // Both an upstream 4xx (AppError) and a genuine transport failure land
+      // here; only the latter should be rewritten.
+      if (err instanceof AppError) throw err;
       const e = err as Error;
       if (e.name === 'AbortError') {
         throw new UpstreamError(this.cfg.name, `${this.cfg.name} timed out after ${timeoutMs}ms`);
