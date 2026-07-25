@@ -20,7 +20,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
 
-**Mobile: home, vendor, item sheet, cart and checkout. 668 specs green (437 TS unit + 108 TS integration + 123 Dart).**
+**All 9 service schemas now exist. 693 specs green (437 TS unit + 133 TS integration + 123 Dart).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -381,7 +381,25 @@ Paystack's sandbox — see "Verification pending" below.*
 - [ ] Address picker, live tracking
 - [ ] Vendor + rider app screens
 
-### Sprint 17 — Hardening
+### Sprint 17 — Missing service schemas ✅
+- [x] **svc-dispatch**: rider availability with PostGIS, broadcast offers,
+      assignments. `find_dispatch_candidates()` enforces staleness, vehicle,
+      sidelining and the **post-order** COD ceiling in one indexed query
+- [x] **Durable issue-#7 guard**: a partial unique index refuses a second
+      active assignment per leg even if Redis were flushed mid-flight
+- [x] **svc-tracking**: partitioned ping trail (720 rows/rider/hour), geofence
+      events with a unique index so an arrival auto-advances an order EXACTLY
+      once, ETA snapshots that measure real Google spend per leg, POD with a
+      distance-from-dropoff flag for disputes
+- [x] Rejected pings are **stored, not discarded** — a cluster of
+      mock_location rejections is the fraud signal
+- [x] **svc-messaging**: immutable chat (dispute evidence), device tokens,
+      notification log unique per (event, recipient, channel), SMS spend view
+- [x] **svc-media**: object registry, a CHECK that sensitive kinds can never
+      be public, retention and orphaned-upload reapers, KYC access log
+- [x] `schemas.e2e.spec` 25/25 against real PostGIS
+
+### Sprint 18 — Hardening
 - [ ] k6 load test, broker chaos test
 - [ ] Fraud controls **(closes issue 15)**
 - [ ] Security review, reconciliation drill
@@ -485,7 +503,25 @@ Paystack's sandbox — see "Verification pending" below.*
 - [ ] Address picker, live tracking
 - [ ] Vendor + rider app screens
 
-### Sprint 17 — Hardening
+### Sprint 17 — Missing service schemas ✅
+- [x] **svc-dispatch**: rider availability with PostGIS, broadcast offers,
+      assignments. `find_dispatch_candidates()` enforces staleness, vehicle,
+      sidelining and the **post-order** COD ceiling in one indexed query
+- [x] **Durable issue-#7 guard**: a partial unique index refuses a second
+      active assignment per leg even if Redis were flushed mid-flight
+- [x] **svc-tracking**: partitioned ping trail (720 rows/rider/hour), geofence
+      events with a unique index so an arrival auto-advances an order EXACTLY
+      once, ETA snapshots that measure real Google spend per leg, POD with a
+      distance-from-dropoff flag for disputes
+- [x] Rejected pings are **stored, not discarded** — a cluster of
+      mock_location rejections is the fraud signal
+- [x] **svc-messaging**: immutable chat (dispute evidence), device tokens,
+      notification log unique per (event, recipient, channel), SMS spend view
+- [x] **svc-media**: object registry, a CHECK that sensitive kinds can never
+      be public, retention and orphaned-upload reapers, KYC access log
+- [x] `schemas.e2e.spec` 25/25 against real PostGIS
+
+### Sprint 18 — Hardening
 - [ ] k6 load test, broker chaos test
 - [ ] Fraud controls **(closes issue 15)**
 - [ ] Security review, Ghana network conditions, reconciliation drill
