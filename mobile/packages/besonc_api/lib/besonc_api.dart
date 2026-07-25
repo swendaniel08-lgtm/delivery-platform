@@ -10,7 +10,7 @@
 ///     rather than stampeding the auth service
 ///   * RFC-7807 problem documents become typed exceptions with the message
 ///     the backend wrote, so the UI shows a real reason
-library besonc_api;
+library;
 
 import 'dart:async';
 import 'dart:convert';

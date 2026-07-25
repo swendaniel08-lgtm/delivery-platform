@@ -20,7 +20,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
 
-**Mobile started: shared packages first. 585 specs green (437 TS unit + 108 TS integration + 40 Dart).**
+**Mobile: shared packages + first real screen. 604 specs green (437 TS unit + 108 TS integration + 59 Dart).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -352,8 +352,20 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Found and fixed: `encodeQueryComponent` sends `+` for spaces; our
       Fastify backend expects `%20`
 - [x] `test-mobile.sh` runner — 40 Dart specs green
-- [ ] `besonc_ui` design system
-- [ ] Customer app screens
+- [x] **`besonc_ui` design system** — high-contrast palette for outdoor sun,
+      56px primary actions, no shimmer/blur (drops frames on low-end phones),
+      images that degrade to labelled placeholders when 3G drops them,
+      COD amounts always tinted so cash is unmissable
+- [x] **Customer home screen** — one BFF call, regions fail independently
+- [x] `home_screen_test` 17/17 — including: a catalogue outage still leaves
+      the active-order banner and service grid usable; disabled services stay
+      visible but inert; closed vendors show their opening time and cannot be
+      tapped; no raw state name ever reaches the UI; tap targets ≥48px
+- [x] **Two real layout bugs found by the tests**: the search placeholder
+      overflowed on 360dp-wide phones, and the store card overflowed its
+      carousel by 11px
+- [ ] Address picker, vendor page, cart, checkout, tracking
+- [ ] Vendor + rider app screens
 
 ### Sprint 17 — Hardening
 - [ ] k6 load test, broker chaos test
@@ -430,8 +442,20 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Found and fixed: `encodeQueryComponent` sends `+` for spaces; our
       Fastify backend expects `%20`
 - [x] `test-mobile.sh` runner — 40 Dart specs green
-- [ ] `besonc_ui` design system
-- [ ] Customer app screens
+- [x] **`besonc_ui` design system** — high-contrast palette for outdoor sun,
+      56px primary actions, no shimmer/blur (drops frames on low-end phones),
+      images that degrade to labelled placeholders when 3G drops them,
+      COD amounts always tinted so cash is unmissable
+- [x] **Customer home screen** — one BFF call, regions fail independently
+- [x] `home_screen_test` 17/17 — including: a catalogue outage still leaves
+      the active-order banner and service grid usable; disabled services stay
+      visible but inert; closed vendors show their opening time and cannot be
+      tapped; no raw state name ever reaches the UI; tap targets ≥48px
+- [x] **Two real layout bugs found by the tests**: the search placeholder
+      overflowed on 360dp-wide phones, and the store card overflowed its
+      carousel by 11px
+- [ ] Address picker, vendor page, cart, checkout, tracking
+- [ ] Vendor + rider app screens
 
 ### Sprint 17 — Hardening
 - [ ] k6 load test, broker chaos test

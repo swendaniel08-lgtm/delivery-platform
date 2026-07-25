@@ -4,7 +4,7 @@
 /// `int`, never a `double`. Dart's `int` is 64-bit on mobile, so this is safe
 /// well past any plausible order value. The wire format is a decimal STRING
 /// because JSON numbers lose precision above 2^53.
-library besonc_models;
+library;
 
 /* ------------------------------------------------------------------ */
 /* Money                                                               */
