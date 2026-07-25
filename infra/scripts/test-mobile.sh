@@ -14,7 +14,13 @@ for pkg in "$ROOT"/mobile/packages/*/; do
   files=$(find "$pkg/test" -name '*_test.dart' 2>/dev/null | wc -l)
   [ "$files" -eq 0 ] && continue
   echo "── $name"
-  out=$(cd "$pkg" && dart pub get >/dev/null 2>&1 && dart test 2>&1)
+  # A package that depends on the Flutter SDK cannot run under plain
+  # `dart test` — it needs the Flutter test binding.
+  if grep -q "sdk: flutter" "$pkg/pubspec.yaml"; then
+    out=$(cd "$pkg" && flutter pub get >/dev/null 2>&1 && flutter test --reporter compact 2>&1)
+  else
+    out=$(cd "$pkg" && dart pub get >/dev/null 2>&1 && dart test 2>&1)
+  fi
   echo "$out" | tr '\r' '\n' | grep -E "All tests passed|Some tests failed" | tail -1 | sed 's/^/   /'
   echo "$out" | grep -q "All tests passed!" || { fail=1; echo "$out" | grep -A5 "Failing tests" | head -10; }
 done
