@@ -13,13 +13,13 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 |---|---|---|---|
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
-| **P2 — Commerce core** | 3–6 | ⬜ Not started | ░░░░░░░░░░ 0% |
+| **P2 — Commerce core** | 3–6 | 🟡 Sprint 3 done | █████░░░░░ 50% |
 | **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0 + P1 complete (Sprints 1–2). 47 specs green.**
-**Currently active: Sprint 3 — Catalogue & Cart.**
+**Overall: P0, P1 complete + Sprint 3. 100 specs green.**
+**Currently active: Sprint 4 — Cart & order draft.**
 
 ---
 
@@ -36,16 +36,16 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
 | 6 | Client callback as payment truth | `webhook.spec` | 6 | [ ] |
 | 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ primitive proven · full test S8 |
-| 8 | Directions API cost bomb | `maps.spec` | 9 | [ ] |
+| 8 | Directions API cost bomb | `maps.spec` | 3 | ✅ **closed** — 89.7% reduction, 3 calls/order |
 | 9 | In-process timers die on deploy | `timers.spec` | 7 | [ ] |
 | 10 | Laundry/errand break one-delivery model | — (schema) | 7 | [ ] |
-| 11 | search reads catalogue replica | — (merge) | 3 | ✅ resolved in plan |
+| 11 | search reads catalogue replica | — (merge) | 3 | ✅ **closed** — own tsvector index |
 | 12 | No admin audit trail | — (schema) | 13 | [ ] |
 | 13 | No payout failure handling | — (saga) | 6 | [ ] |
 | 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**7 of 15 closed.**
+**8 of 15 closed.**
 
 ---
 
@@ -104,16 +104,27 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 
 ## P2 — Commerce Core (Sprints 3–6)
 
-### Sprint 3–4 — Catalogue & Cart
-*Needs: **Google Maps keys** (Places, Geocoding).*
-- [ ] `catalogue-svc`: stores, categories, items, addon groups, variant groups
-- [ ] One template covering all 6 catalogue services
-- [ ] Operating hours, stock toggles, vendor ranking algorithm
-- [ ] Search module with own tsvector index **(closes issue 11)**
+### Sprint 3 — Catalogue, Maps & Pricing ✅ **COMPLETE**
+*Maps client built against a transport port — real Google keys drop into env.*
+- [x] `libs/maps`: geohash, haversine, Ghana bounds, 1.4 road-winding fallback
+- [x] `MapsClient`: geohash-6 route cache, geohash-7 geocode cache, session
+      tokens, daily budget caps, graceful degradation
+- [x] Deviation-based ETA throttling **(closes issue 8)** — `maps.spec` 23/23,
+      **89.7% fewer calls, 3 per clean delivery**
+- [x] `svc-pricing`: all PDF §6 tiers, surcharges, commissions, COD rules
+- [x] `pricing.spec` 30/30 — canonical GHS 81.50 order reproduces exactly;
+      20k random quotes prove the settlement split never leaks a pesewa
+- [x] `svc-catalogue` migration: one template, 6 services, addons, variants
+- [x] Own tsvector + trigram search index **(closes issue 11)**
+- [x] Vendor ranking function (PDF §10 weights), Accra-timezone opening hours
+- [x] Live-verified: pharmacy licence gate, addon selection ranges, price floors
+
+### Sprint 4 — Cart & catalogue API
+- [ ] NestJS runtime + gateway + BFF skeletons
+- [ ] JWT issuance + refresh rotation (carried from Sprint 2)
+- [ ] Cart with one-vendor rule
 - [ ] `media-svc`: upload, compression, variants
-- [ ] Customer: browse, search, vendor page, cart (one-vendor rule)
-- [ ] Vendor: menu management
-- [ ] Address system: GPS pin, GhanaPostGPS, landmark, instructions
+- [ ] Flutter: browse, search, vendor page, address picker
 
 ### Sprint 5 — Pricing + Ledger Core
 - [ ] `pricing-svc`: delivery tiers, service fees, commissions, surcharges — admin-configurable
