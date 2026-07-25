@@ -7,8 +7,11 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "node --import tsx --test libs/**/src/*.test.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.base.json"
+    "test": "bash infra/scripts/test-all.sh",
+    "typecheck": "tsc --noEmit -p tsconfig.base.json",
+    "test:money": "tsx libs/money/src/money.test.ts",
+    "test:otp": "tsx apps/svc-identity/test/otp.spec.ts",
+    "test:ledger": "bash infra/scripts/test-ledger.sh"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

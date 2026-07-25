@@ -12,14 +12,14 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | Phase | Sprints | Status | Progress |
 |---|---|---|---|
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
-| **P1 — Foundation** | 1–2 | 🟡 Sprint 1 done | █████░░░░░ 50% |
+| **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0 + Sprint 1 complete.**
-**Currently active: Sprint 2 — Identity (blocked on Hubtel credentials).**
+**Overall: P0 + P1 complete (Sprints 1–2). 47 specs green.**
+**Currently active: Sprint 3 — Catalogue & Cart.**
 
 ---
 
@@ -32,7 +32,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 1 | Ledger example doesn't balance | `ledger.spec` | 5 | ✅ **closed** — 7/7 green, migration committed |
 | 2 | COD booked at wrong time | `cod.spec` | 10 | [ ] |
 | 3 | Paystack call masking doesn't exist | — (design) | 11 | ✅ resolved in plan |
-| 4 | Arkesel → Hubtel SMS | — (design) | 2 | ✅ resolved in plan |
+| 4 | Arkesel → Hubtel SMS | `otp.spec` | 2 | ✅ **closed** — failover tested |
 | 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
 | 6 | Client callback as payment truth | `webhook.spec` | 6 | [ ] |
 | 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ primitive proven · full test S8 |
@@ -42,10 +42,10 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 11 | search reads catalogue replica | — (merge) | 3 | ✅ resolved in plan |
 | 12 | No admin audit trail | — (schema) | 13 | [ ] |
 | 13 | No payout failure handling | — (saga) | 6 | [ ] |
-| 14 | No OTP rate limiting | `otp.spec` | 2 | [ ] |
+| 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**5 of 15 closed.**
+**7 of 15 closed.**
 
 ---
 
@@ -85,16 +85,20 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 
 **Exit:** `money.spec` + `ledger.spec` green in CI; one service runs end-to-end in Compose.
 
-### Sprint 2 — Identity
-*Needs: **Hubtel account + sender ID** (apply now — external approval delay).*
+### Sprint 2 — Identity ✅ **COMPLETE**
+*Hubtel adapter built against env vars — real credentials drop in with no code change.*
 
-- [ ] `identity-svc`: phone OTP via Hubtel, Arkesel failover
-- [ ] JWT + rotating refresh, argon2, sessions
-- [ ] Profiles (customer / vendor_owner / rider / admin), addresses, Ghana Card KYC
-- [ ] OTP rate limiting **(closes issue 14)** — `otp.spec`
-- [ ] `gateway` + 4 BFF skeletons
-- [ ] `libs/auth` — CASL abilities shared with web-admin
-- [ ] Flutter `besonc_auth` package, auth flow in all 3 apps
+- [x] `SmsProvider` port + Hubtel primary + Arkesel failover **(closes issue 4)**
+- [x] Ghana phone normalisation + MoMo network detection
+- [x] `OtpService`: CSPRNG codes, 5-axis rate limiting, brute-force burn
+- [x] **`otp.spec` 19/19 green (closes issue 14)**
+- [x] `libs/platform/errors` — RFC-7807 problem details
+- [x] `libs/auth` — 11 roles, zone scoping, tenant isolation, `rbac.spec` 13/13
+- [x] `svc-identity` migration: users, addresses, rider/vendor KYC, sessions, otp_audit
+- [x] DB constraints verified live: E.164, GhanaPost format, one-default-address, vehicle docs
+- [ ] JWT issuance + refresh rotation — **deferred to Sprint 3** (needs Nest runtime)
+- [ ] `gateway` + 4 BFF skeletons — **deferred to Sprint 3**
+- [ ] Flutter `besonc_auth` package — **deferred to Sprint 3**
 
 ---
 
