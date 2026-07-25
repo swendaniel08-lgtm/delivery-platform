@@ -14,12 +14,12 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
-| **P3 — Delivery engine** | 7–10 | 🟡 Sprint 7 done | ███░░░░░░░ 25% |
+| **P3 — Delivery engine** | 7–10 | 🟡 Sprints 7–8 done | █████░░░░░ 50% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P2 complete + Sprint 7. 232 specs green (204 unit + 28 DB integration).**
-**Currently active: Sprint 8 — Dispatch.**
+**Overall: P0–P2 complete + Sprints 7–8. 261 specs green (229 unit + 32 integration).**
+**Currently active: Sprint 9 — HTTP wiring (recommended) or Tracking.**
 
 ---
 
@@ -35,7 +35,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 4 | Arkesel → Hubtel SMS | `otp.spec` | 2 | ✅ **closed** — failover tested |
 | 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
 | 6 | Client callback as payment truth | `webhook.spec` | 6 | ✅ **closed** — signed webhook only, 24/24 |
-| 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ primitive proven · full test S8 |
+| 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ **closed** — 100 riders/10 conns vs real Redis |
 | 8 | Directions API cost bomb | `maps.spec` | 3 | ✅ **closed** — 89.7% reduction, 3 calls/order |
 | 9 | In-process timers die on deploy | `outbox-timers.spec` | 7 | ✅ **closed** — DB timers, SKIP LOCKED |
 | 10 | Laundry/errand break one-delivery model | `outbox-timers.spec` | 7 | ✅ **closed** — DeliveryLeg from migration 001 |
@@ -45,7 +45,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**12 of 15 closed.**
+**13 of 15 closed.**
 
 ---
 
@@ -172,10 +172,18 @@ Paystack's sandbox — see "Verification pending" below.*
 - [ ] Transactional outbox relay
 - [ ] Durable BullMQ timers **(closes issue 9)** — `timers.spec`
 
-### Sprint 8 — Dispatch
-- [ ] 3-round broadcast (3km → 5km → 8km)
-- [ ] Redis atomic claim **(closes issue 7)** — `dispatch.spec` 50 concurrent
-- [ ] Vehicle matching, COD-balance gating, reassignment
+### Sprint 8 — Dispatch ✅ **COMPLETE**
+- [x] 3-round broadcast 3km → 5km → 8km, 3 riders, 30 s each (PDF §4)
+- [x] **Redis `SET NX PX` atomic claim (closes issue 7)**
+      - in-memory: 50 concurrent + 200 repeated trials, always 1 winner
+      - **real Redis: 100 riders across 10 connections → exactly 1 winner**
+      - losers are told who won, so the UI can say "taken"
+- [x] Vehicle capability matrix, weight limits, fragile-items-cars-only
+- [x] COD gating on the balance AFTER this order, not before
+- [x] Cancellation sidelining (3/day), acceptance-rate tie-breaking
+- [x] Escalation: rounds → 60 s retries → give up with a refund offer
+- [x] Redis GEO nearest-first, claim TTL so a stuck leg self-recovers
+- [x] `dispatch.spec` 25/25, `dispatch-redis.spec` 4/4
 
 ### Sprint 9 — Tracking
 - [ ] GPS ingest, Socket.IO fanout
