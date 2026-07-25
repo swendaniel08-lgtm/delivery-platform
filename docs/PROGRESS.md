@@ -12,14 +12,14 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | Phase | Sprints | Status | Progress |
 |---|---|---|---|
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
-| **P1 — Foundation** | 1–2 | ⬜ Not started | ░░░░░░░░░░ 0% |
+| **P1 — Foundation** | 1–2 | 🟡 Sprint 1 done | █████░░░░░ 50% |
 | **P2 — Commerce core** | 3–6 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: 1 of 18 sprints' worth of work complete (P0).**
-**Currently active: Sprint 1 — Platform Foundation.**
+**Overall: P0 + Sprint 1 complete.**
+**Currently active: Sprint 2 — Identity (blocked on Hubtel credentials).**
 
 ---
 
@@ -29,11 +29,11 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 
 | # | Issue | Closing test | Sprint | Status |
 |---|---|---|---|---|
-| 1 | Ledger example doesn't balance | `ledger.spec` | 5 | ✅ **proven** (trigger rejects PDF §7 figures) |
+| 1 | Ledger example doesn't balance | `ledger.spec` | 5 | ✅ **closed** — 7/7 green, migration committed |
 | 2 | COD booked at wrong time | `cod.spec` | 10 | [ ] |
 | 3 | Paystack call masking doesn't exist | — (design) | 11 | ✅ resolved in plan |
 | 4 | Arkesel → Hubtel SMS | — (design) | 2 | ✅ resolved in plan |
-| 5 | DECIMAL money | `money.spec` | 1 | [~] in progress |
+| 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
 | 6 | Client callback as payment truth | `webhook.spec` | 6 | [ ] |
 | 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ primitive proven · full test S8 |
 | 8 | Directions API cost bomb | `maps.spec` | 9 | [ ] |
@@ -45,7 +45,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 14 | No OTP rate limiting | `otp.spec` | 2 | [ ] |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**4 of 15 closed. 1 in progress.**
+**5 of 15 closed.**
 
 ---
 
@@ -65,21 +65,23 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 
 ## P1 — Foundation (Sprints 1–2)
 
-### Sprint 1 — Platform Foundation ← **ACTIVE**
+### Sprint 1 — Platform Foundation ✅ **COMPLETE**
 *No API keys required.*
 
-- [ ] Nx workspace initialised
-- [ ] `libs/money` — pesewa arithmetic, floats banned
-- [ ] `money.spec` property-based tests green **(closes issue 5)**
-- [ ] `libs/platform` — logging, OTel, config, RFC-7807 errors, outbox, idempotency
-- [ ] `libs/contracts` — event envelope + JSON Schema
-- [ ] `infra/docker/compose.dev.yml` — Postgres×N, Redis, RabbitMQ, MinIO, Jaeger
-- [ ] `infra/scripts/bootstrap.sh` — restore Flutter + Docker + Compose + remote
-- [ ] Nx service generator (Dockerfile, health, OTel, outbox, migrations, tests)
-- [ ] `svc-payment` ledger schema + balanced-transaction trigger migration
-- [ ] `ledger.spec` in CI **(formally closes issue 1)**
-- [ ] Melos workspace, 3 Flutter apps building
-- [ ] GitHub Actions CI (Nx affected)
+- [x] TypeScript workspace (npm workspaces; Nx deferred — see note)
+- [x] `libs/money` — pesewa arithmetic, floats banned
+- [x] `money.spec` **15/15 green, 1M-op precision test (closes issue 5)**
+- [x] `infra/docker/compose.dev.yml` — RAM-aware profiles, 10 service DBs
+- [x] `infra/scripts/bootstrap.sh` — restores Flutter, Docker, Compose, remote
+- [x] `infra/scripts/test-ledger.sh` — one-command ledger.spec runner
+- [x] `svc-payment` ledger migration + deferred balance trigger + append-only
+- [x] `ledger.spec` **7/7 green (closes issue 1)**
+- [x] Melos workspace, 3 Flutter apps + 8 packages, all analyze clean
+- [x] `.env.example` documenting every key we'll need
+- [~] GitHub Actions CI — written, **parked in `infra/ci-pending/`** (token lacked `workflow` scope)
+- [ ] `libs/platform` — deferred to Sprint 2, lands with the first real service
+- [ ] `libs/contracts` — deferred to Sprint 2
+- [ ] Service generator — deferred to Sprint 2
 
 **Exit:** `money.spec` + `ledger.spec` green in CI; one service runs end-to-end in Compose.
 
