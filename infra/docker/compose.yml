@@ -1,0 +1,240 @@
+# The full Besonc platform.
+#
+#   docker compose -f infra/docker/compose.yml up -d --build
+#
+# Reads .env from the repository root, so this is where your real
+# credentials go. Nothing here contains a secret.
+#
+# NOTE ON MEMORY: fifteen Node processes plus Postgres, Redis and RabbitMQ
+# needs roughly 4GB. On a smaller box use `compose.dev.yml` for the
+# infrastructure and `infra/scripts/run-stack.sh` for the services.
+
+name: besonc
+
+# Compose resolves ${VAR} from a .env sitting NEXT TO THIS FILE, while
+# `env_file:` below loads the repo-root .env into the containers. Those are
+# two different files and it is a genuinely confusing default, so point the
+# interpolation source at the same root .env everyone actually edits.
+#
+#   Run from the repository root:
+#     docker compose --env-file .env -f infra/docker/compose.yml up -d
+#
+# The Makefile target does this for you.
+
+x-service: &service
+  build:
+    context: ../..
+    dockerfile: infra/docker/Dockerfile
+  image: besonc:latest
+  restart: unless-stopped
+  env_file: [../../.env]
+  # Every service resolves its siblings by container name.
+  environment: &service-env
+    # MUST be here, not only in .env: the image bakes NODE_ENV=production,
+    # and an `env_file` value does NOT override a variable already set in
+    # the image — but an `environment:` entry does. Without this line a
+    # local `NODE_ENV=development` in .env is silently ignored and every
+    # production guardrail fires.
+    NODE_ENV: ${NODE_ENV:-production}
+    SVC_IDENTITY_URL: http://identity:3001
+    SVC_CATALOGUE_URL: http://catalogue:3002
+    SVC_ORDER_URL: http://order:3003
+    SVC_PRICING_URL: http://pricing:3004
+    SVC_DISPATCH_URL: http://dispatch:3005
+    SVC_TRACKING_URL: http://tracking:3006
+    SVC_PAYMENT_URL: http://payment:3007
+    SVC_MESSAGING_URL: http://messaging:3008
+    SVC_MEDIA_URL: http://media:3009
+    SVC_ADMIN_URL: http://admin:3010
+    BFF_CUSTOMER_URL: http://bff-customer:3101
+    BFF_VENDOR_URL: http://bff-vendor:3102
+    BFF_RIDER_URL: http://bff-rider:3103
+    BFF_ADMIN_URL: http://bff-admin:3104
+    REDIS_URL: redis://redis:6379
+    RABBITMQ_URL: amqp://besonc:${RABBITMQ_PASSWORD:-besonc_dev}@rabbitmq:5672
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    # Order-svc publishes its outbox here; without the broker no other
+    # service ever learns an order was placed.
+    rabbitmq: {condition: service_healthy}
+  networks: [besonc]
+
+services:
+  # ---------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------
+  postgres:
+    # PostGIS, not plain postgres: dispatch and tracking use geo types and
+    # will not migrate against the vanilla image.
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: besonc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-besonc_dev}
+      # Each service owns its own database. init-databases.sh creates them.
+      POSTGRES_MULTIPLE_DATABASES: identity,catalogue,orders,payment,dispatch,tracking,messaging,media,admin
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U besonc"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [besonc]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # AOF on: Redis holds the dispatch accept-claims. Losing them to a
+    # restart means a leg can be assigned twice.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [besonc]
+
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: besonc
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-besonc_dev}
+    volumes: [mqdata:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    networks: [besonc]
+
+  # ---------------------------------------------------------------
+  # Services
+  # ---------------------------------------------------------------
+  identity:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-identity/src/main.ts
+      PORT: 3001
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/identity
+
+  catalogue:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-catalogue/src/main.ts
+      PORT: 3002
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/catalogue
+
+  order:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-order/src/main.ts
+      PORT: 3003
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/orders
+
+  pricing:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-pricing/src/main.ts
+      PORT: 3004
+
+  dispatch:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-dispatch/src/main.ts
+      PORT: 3005
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/dispatch
+
+  tracking:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-tracking/src/main.ts
+      PORT: 3006
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/tracking
+
+  payment:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-payment/src/main.ts
+      PORT: 3007
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/payment
+
+  messaging:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-messaging/src/main.ts
+      PORT: 3008
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/messaging
+
+  media:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-media/src/main.ts
+      PORT: 3009
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/media
+
+  admin:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/svc-admin/src/main.ts
+      PORT: 3010
+      DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/admin
+
+  # ---------------------------------------------------------------
+  # BFFs — no database of their own
+  # ---------------------------------------------------------------
+  bff-customer:
+    <<: *service
+    environment: {<<: *service-env, SERVICE_MAIN: apps/bff-customer/src/main.ts, PORT: 3101}
+
+  bff-vendor:
+    <<: *service
+    environment: {<<: *service-env, SERVICE_MAIN: apps/bff-vendor/src/main.ts, PORT: 3102}
+
+  bff-rider:
+    <<: *service
+    environment: {<<: *service-env, SERVICE_MAIN: apps/bff-rider/src/main.ts, PORT: 3103}
+
+  bff-admin:
+    <<: *service
+    environment: {<<: *service-env, SERVICE_MAIN: apps/bff-admin/src/main.ts, PORT: 3104}
+
+  # ---------------------------------------------------------------
+  # Gateway — THE ONLY PUBLISHED PORT
+  # ---------------------------------------------------------------
+  gateway:
+    <<: *service
+    environment:
+      <<: *service-env
+      SERVICE_MAIN: apps/gateway/src/main.ts
+      PORT: 3000
+      # Safe here because the compose network is the only path in.
+      TRUST_PROXY: "true"
+    ports:
+      - "${GATEWAY_PORT:-3000}:3000"
+    # Deliberately the only `ports:` entry in this file. Services trust the
+    # x-user-* headers the gateway sets; publishing a service port would let
+    # anyone set those headers themselves and impersonate any user.
+
+volumes:
+  pgdata:
+  redisdata:
+  mqdata:
+
+networks:
+  besonc:
+    driver: bridge
