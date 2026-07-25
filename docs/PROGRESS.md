@@ -20,7 +20,26 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**1,264 specs green — 739 TS unit + 133 TS integration + 392 Dart.**
+**1,305 specs green — 745 TS unit + 133 TS integration + 427 Dart.**
+
+**Session of 2026-07-25 — riders can deliver, vendors can manage a menu**
+
+Sixth block. Two flows that were structurally broken:
+
+- **Riders could not complete a single delivery.** order-svc rejects
+  `rider_deliver` without a photoUrl, and the app's "take proof" button set
+  a local boolean and uploaded nothing. Every completion would have been a
+  422. Built the full capture → presigned grant → direct-to-storage upload
+  pipeline; the object key now travels with the delivery event.
+- **Vendors could not mark a dish sold out.** catalogue-svc supported it,
+  the BFF exposed nothing. Added the menu routes and an optimistic toggle
+  that reverts if the server refuses.
+
+| Bug | Impact |
+|---|---|
+| Proof of delivery never uploaded | **No rider could close any job** |
+| Active-job card Row overflowed at 360dp | Broke on exactly the COD jobs where the card matters most |
+| Menu row overflowed by 8.5px | Sold-out dishes have the longest names |
 
 **Session of 2026-07-25 — the customer app can take an order**
 
