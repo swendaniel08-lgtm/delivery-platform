@@ -177,6 +177,80 @@ export class VendorBffController {
     return vendorOrder(order);
   }
 
+  /**
+   * The vendor's own menu, INCLUDING items they have switched off.
+   *
+   * The public store page hides unavailable items; this one must not, or a
+   * vendor could never switch the tilapia back on after it sold out.
+   */
+  @Get('menu')
+  async menu(@Headers('authorization') auth?: string) {
+    const c = this.claims(auth);
+    const token = bearer(auth);
+    const r = await this.up.catalogue.get(
+      `/catalogue/manage/stores/${c.vendorId}/items`, { bearerToken: token },
+    );
+    return {
+      items: (r.items ?? []).map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        description: i.description ?? null,
+        // Pesewa strings on the wire; the app formats them.
+        basePricePesewas: i.basePricePesewas,
+        isAvailable: i.isAvailable,
+        requiresPrescription: i.requiresPrescription,
+      })),
+    };
+  }
+
+  /**
+   * "We've run out of tilapia."
+   *
+   * By far the most-used vendor action, and the one with the shortest
+   * fuse: every minute an unavailable item stays on the menu is another
+   * order the kitchen will have to reject.
+   */
+  @Patch('menu/:itemId/availability')
+  async setAvailability(
+    @Param('itemId') itemId: string,
+    @Body() body: any,
+    @Headers('authorization') auth?: string,
+  ) {
+    this.claims(auth);
+    const token = bearer(auth);
+    if (typeof body?.isAvailable !== 'boolean') {
+      throw new ValidationError({ isAvailable: ['must be true or false'] });
+    }
+    // catalogue-svc re-checks ownership from the token, so a vendor cannot
+    // switch off a competitor's bestseller by guessing an item id.
+    const r = await this.up.catalogue.patch(
+      `/catalogue/manage/items/${itemId}/availability`,
+      { isAvailable: body.isAvailable },
+      { bearerToken: token },
+    );
+    return { id: r.id, name: r.name, isAvailable: r.isAvailable };
+  }
+
+  /** Add a dish. */
+  @Post('menu')
+  async addItem(@Body() body: any, @Headers('authorization') auth?: string) {
+    const c = this.claims(auth);
+    const token = bearer(auth);
+    if (!body?.name) throw new ValidationError({ name: ['is required'] });
+    if (body?.basePricePesewas === undefined) {
+      throw new ValidationError({ basePricePesewas: ['is required'] });
+    }
+    return this.up.catalogue.post(
+      `/catalogue/manage/stores/${c.vendorId}/items`,
+      {
+        name: String(body.name),
+        basePricePesewas: String(body.basePricePesewas),
+        ...(body.description ? { description: String(body.description) } : {}),
+      },
+      { bearerToken: token },
+    );
+  }
+
   /** Today's takings and the wallet, for the earnings strip. */
   @Get('earnings')
   async earnings(@Headers('authorization') auth?: string) {

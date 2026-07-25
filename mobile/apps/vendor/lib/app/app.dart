@@ -14,6 +14,8 @@ import 'package:besonc_auth/auth_screens.dart';
 import 'package:besonc_ui/besonc_ui.dart';
 
 import '../screens/dashboard_screen.dart';
+import '../screens/menu_screen.dart';
+import '../state/menu_controller.dart';
 import '../state/order_queue_controller.dart';
 import 'environment.dart';
 
@@ -220,15 +222,60 @@ class _VendorRootState extends State<VendorRoot> {
           return ProfileSetupScreen(auth: deps.auth, onDone: () => setState(() {}));
         }
 
-        return DashboardScreen(
-          controller: queue.controller,
-          storeName: queue.storeName.isEmpty ? 'Your store' : queue.storeName,
-          rating: queue.rating,
-          onAct: queue.act,
-          onToggleOpen: queue.toggleOpen,
-          onRetry: queue.refresh,
+        return Scaffold(
+          body: DashboardScreen(
+            controller: queue.controller,
+            storeName: queue.storeName.isEmpty ? 'Your store' : queue.storeName,
+            rating: queue.rating,
+            onAct: queue.act,
+            onToggleOpen: queue.toggleOpen,
+            onRetry: queue.refresh,
+          ),
+          // The menu is one tap away, not buried in a settings screen:
+          // "we've run out of tilapia" is urgent, and every minute the dish
+          // stays listed is another order the kitchen has to reject.
+          floatingActionButton: FloatingActionButton(
+            key: const Key('open-menu'),
+            onPressed: () => _openMenu(context, deps),
+            tooltip: 'Menu',
+            child: const Icon(Icons.restaurant_menu),
+          ),
         );
       },
     );
   }
+
+  void _openMenu(BuildContext context, VendorDependencies deps) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MenuPage(deps: deps),
+    ));
+  }
+}
+
+
+/// Menu management, loaded on open.
+class MenuPage extends StatefulWidget {
+  const MenuPage({super.key, required this.deps});
+
+  final VendorDependencies deps;
+
+  @override
+  State<MenuPage> createState() => _MenuPageState();
+}
+
+class _MenuPageState extends State<MenuPage> {
+  late final VendorMenuController _menu =
+      VendorMenuController(api: widget.deps.api)..load();
+
+  @override
+  void dispose() {
+    _menu.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MenuScreen(
+        controller: _menu,
+        onAddItem: () => AddItemSheet.show(context, _menu),
+      );
 }

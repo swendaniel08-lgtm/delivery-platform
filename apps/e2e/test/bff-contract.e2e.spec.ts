@@ -542,6 +542,61 @@ describe('vendor BFF contract', () => {
     );
   });
 
+  test('the menu INCLUDES items the vendor switched off', async () => {
+    stubQueue();
+    route('GET /catalogue/manage/stores/store-1/items', {
+      items: [
+        { id: 'i1', name: 'Jollof Rice', basePricePesewas: '3500',
+          isAvailable: true, requiresPrescription: false },
+        { id: 'i2', name: 'Grilled Tilapia', basePricePesewas: '6000',
+          isAvailable: false, requiresPrescription: false },
+      ],
+    });
+
+    const b = await (await get(vendorSvc.url, '/api/vendor/menu',
+      as('v1', 'vendor_owner', 'store-1'))).json() as any;
+
+    assert.equal(b.items.length, 2);
+    assert.equal(b.items[1].isAvailable, false,
+      'hiding sold-out items would leave the vendor unable to switch them '
+      + 'back on when the fish arrives');
+  });
+
+  test('switching an item off is one call', async () => {
+    stubQueue();
+    route('PATCH /catalogue/manage/items/i1/availability', {
+      id: 'i1', name: 'Jollof Rice', isAvailable: false,
+    });
+
+    const r = await fetch(`${vendorSvc.url}/api/vendor/menu/i1/availability`, {
+      method: 'PATCH',
+      headers: as('v1', 'vendor_owner', 'store-1'),
+      body: JSON.stringify({ isAvailable: false }),
+    });
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 200);
+    assert.equal(b.isAvailable, false);
+  });
+
+  test('availability must be a boolean, not a truthy string', async () => {
+    stubQueue();
+    const r = await fetch(`${vendorSvc.url}/api/vendor/menu/i1/availability`, {
+      method: 'PATCH',
+      headers: as('v1', 'vendor_owner', 'store-1'),
+      body: JSON.stringify({ isAvailable: 'no' }),
+    });
+    assert.equal(r.status, 422,
+      '"no" is truthy in JavaScript — it would switch the item ON');
+  });
+
+  test('a new dish needs a name and a price', async () => {
+    stubQueue();
+    const r = await post(vendorSvc.url, '/api/vendor/menu',
+      { name: 'Waakye' }, as('v1', 'vendor_owner', 'store-1'));
+    assert.equal(r.status, 422);
+  });
+
   test('the queue still renders when the catalogue is down', async () => {
     stubQueue();
     failing.add('/catalogue');
