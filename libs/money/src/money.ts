@@ -51,7 +51,25 @@ export function toCedis(p: Pesewas): string {
   return `${neg ? '-' : ''}${whole}.${frac.toString().padStart(2, '0')}`;
 }
 
-export const format = (p: Pesewas): string => `GHS ${toCedis(p)}`;
+/**
+ * Display formatting WITH thousand separators.
+ *
+ * `toCedis` stays separator-free because it must round-trip through
+ * `fromCedis`. This is the one function UI layers should call, so the
+ * backend and the admin dashboard can never disagree about how money looks.
+ */
+export function formatCedis(p: Pesewas): string {
+  const neg = p < 0n;
+  const abs = neg ? -p : p;
+  const whole = (abs / PESEWAS_PER_CEDI).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const frac = (abs % PESEWAS_PER_CEDI).toString().padStart(2, '0');
+  // Sign goes with the NUMBER, not before the currency: "GHS -2.05".
+  // A refund line reading "-GHS 2.05" reads as a negative currency.
+  return `GHS ${neg ? '-' : ''}${whole}.${frac}`;
+}
+
+/** @deprecated use formatCedis — kept so existing call sites keep compiling. */
+export const format = (p: Pesewas): string => formatCedis(p);
 
 export const add = (...xs: Pesewas[]): Pesewas => xs.reduce((a, b) => a + b, 0n);
 export const sub = (a: Pesewas, b: Pesewas): Pesewas => a - b;

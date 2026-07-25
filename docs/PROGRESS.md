@@ -18,7 +18,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete + relay, gateway, 3 BFFs. 472 specs green (383 unit + 89 integration incl. 16 end-to-end).**
+**Overall: P0–P4 complete + relay, gateway, all 4 BFFs, media-svc. 506 specs green (417 unit + 89 integration incl. 16 end-to-end).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -305,8 +305,14 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] **Rider BFF** — one next action at a time, navigation target follows
       leg state, COD balance always visible and blocking when overdue,
       proof + cash confirmation forced on completion
-- [ ] Admin BFF
-- [ ] HTTP for the remaining 9 services
+- [x] **Admin BFF** — zone filtering applied UPSTREAM so out-of-scope rows
+      never reach the client; page size capped; every mutation audited
+- [x] **media-svc** — presigned uploads (never proxy bytes), per-kind size /
+      type / role policy, private KYC never publicly addressable, retention
+      windows by sensitivity, image variants. `admin-media.spec` 33/33
+- [x] Money formatting unified in `libs/money` — the dashboard and the API
+      had drifted (`12400.00` vs `12,400.00`); one formatter now serves both
+- [ ] HTTP wiring for the remaining services
 - [ ] WebSocket server for tracking/chat
 - [ ] `media-svc`
 
@@ -340,8 +346,14 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] **Rider BFF** — one next action at a time, navigation target follows
       leg state, COD balance always visible and blocking when overdue,
       proof + cash confirmation forced on completion
-- [ ] Admin BFF
-- [ ] HTTP for the remaining 9 services
+- [x] **Admin BFF** — zone filtering applied UPSTREAM so out-of-scope rows
+      never reach the client; page size capped; every mutation audited
+- [x] **media-svc** — presigned uploads (never proxy bytes), per-kind size /
+      type / role policy, private KYC never publicly addressable, retention
+      windows by sensitivity, image variants. `admin-media.spec` 33/33
+- [x] Money formatting unified in `libs/money` — the dashboard and the API
+      had drifted (`12400.00` vs `12,400.00`); one formatter now serves both
+- [ ] HTTP wiring for the remaining services
 - [ ] WebSocket server for tracking/chat
 - [ ] `media-svc`
 

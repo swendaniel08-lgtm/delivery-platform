@@ -11,7 +11,7 @@
  *      us and the thing that gets them suspended if ignored.
  */
 
-import { toCedis, type Pesewas } from '../../../libs/money/src/money.ts';
+import { formatCedis, type Pesewas } from '../../../libs/money/src/money.ts';
 import { ForbiddenError, NotFoundError, ConflictError } from '../../../libs/platform/src/errors.ts';
 import { codStatus, type CodRiderState } from '../../svc-payment/src/cod/cod-service.ts';
 
@@ -122,18 +122,18 @@ export class RiderBff {
           : {}),
       today: {
         deliveries: today.deliveries,
-        earnedDisplay: `GHS ${toCedis(today.earnedPesewas)}`,
+        earnedDisplay: formatCedis(today.earnedPesewas),
         onlineDisplay: formatDuration(today.onlineSeconds),
       },
       cod: {
-        balanceDisplay: `GHS ${toCedis(cod.obligationPesewas)}`,
+        balanceDisplay: formatCedis(cod.obligationPesewas),
         status: codInfo.status,
         mustRemit: codInfo.status === 'blocked' || codInfo.status === 'suspended'
           || codInfo.status === 'warned',
         ...(codInfo.message ? { message: codInfo.message } : {}),
       },
       currentLeg: leg ? this.toCard(leg) : null,
-      walletDisplay: `GHS ${toCedis(wallet.availablePesewas)}`,
+      walletDisplay: formatCedis(wallet.availablePesewas),
     };
   }
 
@@ -149,9 +149,9 @@ export class RiderBff {
       ...(heading === 'dropoff' && leg.dropoff.landmark ? { landmark: leg.dropoff.landmark } : {}),
       ...(heading === 'dropoff' && leg.dropoff.instructions
         ? { instructions: leg.dropoff.instructions } : {}),
-      earnsDisplay: `GHS ${toCedis(BigInt(leg.feePesewas))}`,
+      earnsDisplay: formatCedis(BigInt(leg.feePesewas)),
       ...(leg.isCod && leg.codAmountPesewas
-        ? { collectCashDisplay: `GHS ${toCedis(BigInt(leg.codAmountPesewas))}` } : {}),
+        ? { collectCashDisplay: formatCedis(BigInt(leg.codAmountPesewas)) } : {}),
       nextAction: nextActionFor(leg),
     };
   }

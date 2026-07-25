@@ -44,10 +44,18 @@ describe('parsing and formatting', () => {
     }
   });
 
-  test('formats for display', () => {
+  test('formats for display with thousand separators', () => {
     assert.equal(format(8150n), 'GHS 81.50');
     assert.equal(format(5n), 'GHS 0.05');
     assert.equal(format(-205n), 'GHS -2.05');
+    // separators matter once revenue figures reach the admin dashboard
+    assert.equal(format(1_240_000n), 'GHS 12,400.00');
+    assert.equal(format(100_000_000n), 'GHS 1,000,000.00');
+  });
+
+  test('toCedis stays separator-free so it round-trips', () => {
+    assert.equal(toCedis(1_240_000n), '12400.00');
+    assert.equal(fromCedis(toCedis(1_240_000n)), 1_240_000n);
   });
 });
 

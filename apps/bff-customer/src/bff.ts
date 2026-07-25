@@ -10,7 +10,7 @@
  * database.
  */
 
-import { toCedis, type Pesewas } from '../../../libs/money/src/money.ts';
+import { formatCedis, type Pesewas } from '../../../libs/money/src/money.ts';
 import { NotFoundError, UpstreamError } from '../../../libs/platform/src/errors.ts';
 
 /* ------------------------------------------------------------------ */
@@ -210,7 +210,7 @@ export class CustomerBff {
         imageUrl: s.imageUrl,
         rating: s.rating,
         prepEstimate: prepRange(s.avgPrepMinutes),
-        deliveryFee: fee === null || fee === undefined ? '—' : `GHS ${toCedis(fee)}`,
+        deliveryFee: fee === null || fee === undefined ? '—' : formatCedis(fee),
         isOpen: s.isOpen,
         ...(s.opensAt ? { opensAt: s.opensAt } : {}),
       };

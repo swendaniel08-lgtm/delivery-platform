@@ -1,11 +1,14 @@
-/** Display formatting. Money arrives as pesewa strings and stays exact. */
+/**
+ * Display formatting.
+ *
+ * Money formatting is re-exported from libs/money so the dashboard and the
+ * API can never disagree about how an amount looks. Do not reimplement it here.
+ */
+import { formatCedis as fmt } from '../../../libs/money/src/money';
+
+/** Accepts the pesewa strings that come back over the wire. */
 export function formatCedis(pesewas: string | bigint): string {
-  const v = typeof pesewas === 'string' ? BigInt(pesewas) : pesewas;
-  const neg = v < 0n;
-  const abs = neg ? -v : v;
-  const whole = (abs / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const frac = (abs % 100n).toString().padStart(2, '0');
-  return `${neg ? '-' : ''}GHS ${whole}.${frac}`;
+  return fmt(typeof pesewas === 'string' ? BigInt(pesewas) : pesewas);
 }
 
 export function formatState(state: string): string {

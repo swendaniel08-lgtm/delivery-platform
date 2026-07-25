@@ -11,7 +11,7 @@
  * gateway forwarded, never from the request body.
  */
 
-import { add, toCedis, type Pesewas } from '../../../libs/money/src/money.ts';
+import { add, formatCedis, type Pesewas } from '../../../libs/money/src/money.ts';
 import { ForbiddenError, NotFoundError } from '../../../libs/platform/src/errors.ts';
 import { VENDOR_ACCEPT_SECONDS } from '../../svc-order/src/state/machine.ts';
 
@@ -140,13 +140,13 @@ export class VendorBff {
       isOpen: store.isOpen,
       today: {
         orders: today.orderCount,
-        revenueDisplay: `GHS ${toCedis(today.netPesewas)}`,
+        revenueDisplay: formatCedis(today.netPesewas),
         rating: store.rating,
       },
       newOrders,
       inProgress: active.filter((o) => IN_PROGRESS.includes(o.state)).map((o) => this.toActionable(o)),
       completedToday: active.filter((o) => DONE.includes(o.state)).length,
-      walletDisplay: `GHS ${toCedis(wallet.availablePesewas)}`,
+      walletDisplay: formatCedis(wallet.availablePesewas),
     };
   }
 
@@ -155,8 +155,8 @@ export class VendorBff {
       id: o.id,
       humanRef: o.humanRef,
       lines: o.lines,
-      totalDisplay: `GHS ${toCedis(BigInt(o.itemTotalPesewas))}`,
-      earnsDisplay: `GHS ${toCedis(BigInt(o.vendorAmountPesewas))}`,
+      totalDisplay: formatCedis(BigInt(o.itemTotalPesewas)),
+      earnsDisplay: formatCedis(BigInt(o.vendorAmountPesewas)),
       isCod: o.isCod,
       requiresPrescription: o.requiresPrescription,
       primaryAction: primaryActionFor(o.state),
