@@ -9,12 +9,12 @@
 | Area | Measured | Status |
 |---|---|---|
 | Backend + shared libs | ~61,000 lines TS | ✅ Thorough, well-tested |
-| Tests | **980 specs green** (527 TS unit + 133 TS integration + 320 Dart) | ✅ Real, incl. end-to-end |
+| Tests | **1,088 specs green** (614 TS unit + 133 TS integration + 341 Dart) | ✅ Real, incl. end-to-end |
 | SQL migrations | 9 services | ✅ Constraints enforce invariants |
 | Admin dashboard | Next.js 16, 4 routes, builds & serves | 🟡 Renders **stubbed data** |
-| **Flutter apps** | ~10,000 lines Dart | 🟡 **Customer app runs**; vendor/rider still library-only |
+| **Flutter apps** | ~11,000 lines Dart | 🟡 **All three boot, sign in and call their BFF**; most screens still to build |
 | Shared Dart packages | models, api, ui, auth real; 4 still stubs | 🟡 Partly built |
-| HTTP surface | **4 of 11 services** (order, pricing, identity, catalogue) | 🟡 In progress |
+| HTTP surface | **7 of 11 services** (+ dispatch, tracking, payment) | 🟡 In progress |
 | Event bus | RabbitMQ outbox relay, verified end-to-end | ✅ Working |
 | WebSocket transport | Real `ws` server for tracking + chat | ✅ Working |
 
@@ -28,9 +28,11 @@ backend. The other two apps and most repository layers remain.
 
 ### 1. Mobile — still the largest single item 🟡
 
-The **customer app boots, signs in over real OTP, and renders its home screen
-from the BFF**. The vendor and rider apps have tested controllers and one
-screen each, but their `main.dart` files are still the counter template.
+**All three apps boot, sign in over real OTP, and render live data from their
+BFF.** What remains is breadth, not foundations: the customer app has home
+and vendor screens but no cart/checkout/tracking screens wired to navigation;
+vendor has the order queue but no menu editor; rider has the job flow but no
+map, camera or remittance screen.
 
 | App | Screens needed (approx.) |
 |---|---|

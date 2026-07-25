@@ -20,9 +20,23 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**980 specs green — 527 TS unit + 133 TS integration + 320 Dart.**
+**1,088 specs green — 614 TS unit + 133 TS integration + 341 Dart.**
 
-**Session of 2026-07-25 — HTTP surfaces + a runnable customer app**
+**Session of 2026-07-25 — HTTP surfaces + all three apps runnable**
+
+Second half of the session:
+
+- `svc-dispatch`, `svc-tracking` and `svc-payment` gained HTTP surfaces.
+  **7 of 11 services now speak HTTP** (was 2 at the start of the session).
+  The dispatch suite fires 50 concurrent accepts through the full Fastify
+  stack and asserts exactly one winner; the payment suite asserts debits
+  equal credits after every single operation.
+- **The vendor and rider apps now boot too.** All three Flutter apps sign in
+  over real OTP and drive their BFF.
+- Platform: `rawBodyRoutes` preserves literal request bytes for webhook
+  signature verification — see the bug table below.
+
+First half of the session:
 
 - `svc-identity` now has a real HTTP surface: OTP request/verify, refresh
   rotation, logout, token introspection, profile and address CRUD, backed by
@@ -46,6 +60,8 @@ Real bugs these caught:
 | `requestCode()` left the stage at `restoring` on a first-call failure | User stuck on the splash screen forever with no way out |
 | Auth screens only repainted inside `AuthGate` | Pushing them directly gave a frozen, unresponsive screen |
 | `test-mobile.sh` ran Flutter packages under `dart test` | `besonc_auth` was silently skipped — 37 specs never ran |
+| Webhook raw body was rebuilt with `JSON.stringify(req.body)` | Key order and whitespace change, so it verifies against our own tests and then **401s on every real Paystack delivery** |
+| Fastify 400'd an unparseable signed webhook body before the controller | Paystack would retry a poison event forever |
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
