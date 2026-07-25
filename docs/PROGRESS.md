@@ -20,7 +20,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
 
-**Mobile: shared packages + first real screen. 604 specs green (437 TS unit + 108 TS integration + 59 Dart).**
+**Mobile: home, vendor detail, item sheet and cart. 645 specs green (437 TS unit + 108 TS integration + 100 Dart).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -364,7 +364,15 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] **Two real layout bugs found by the tests**: the search placeholder
       overflowed on 360dp-wide phones, and the store card overflowed its
       carousel by 11px
-- [ ] Address picker, vendor page, cart, checkout, tracking
+- [x] **Cart controller** — one-vendor rule held across the whole session,
+      line merging by full option signature (chicken vs fish jollof stay
+      separate), quantity capped at the server limit, checkout payload
+      carries ids only. `cart_controller_test` 26/26
+- [x] **Vendor screen + item sheet** — closed vendors and out-of-stock items
+      are inert, running total updates live, single-choice options replace
+      rather than ignore the tap, and a disabled Add button always shows the
+      REASON. `vendor_screen_test` 15/15
+- [ ] Address picker, checkout, live tracking
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Hardening
@@ -454,7 +462,15 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] **Two real layout bugs found by the tests**: the search placeholder
       overflowed on 360dp-wide phones, and the store card overflowed its
       carousel by 11px
-- [ ] Address picker, vendor page, cart, checkout, tracking
+- [x] **Cart controller** — one-vendor rule held across the whole session,
+      line merging by full option signature (chicken vs fish jollof stay
+      separate), quantity capped at the server limit, checkout payload
+      carries ids only. `cart_controller_test` 26/26
+- [x] **Vendor screen + item sheet** — closed vendors and out-of-stock items
+      are inert, running total updates live, single-choice options replace
+      rather than ignore the tap, and a disabled Add button always shows the
+      REASON. `vendor_screen_test` 15/15
+- [ ] Address picker, checkout, live tracking
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Hardening
