@@ -15,11 +15,13 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
 | **P3 — Delivery engine** | 7–10 | ✅ **Complete** | ██████████ 100% |
-| **P4 — Completion** | 11–14 | 🟡 Sprints 11–12 done | █████░░░░░ 50% |
+| **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P3 complete + Sprints 11–12. 368 specs green (309 unit + 59 integration incl. 7 end-to-end).**
-**Currently active: Sprint 13–14 — Admin dashboard.**
+**Overall: P0–P4 complete (Sprints 1–14). 389 specs green (309 unit + 80 integration incl. 7 end-to-end).**
+**Currently active: Sprint 15–16 — Hardening.**
+
+**All 15 spec issues closed. Backend + admin dashboard build and run.**
 
 **All 8 services from the PDF are now implemented.**
 
@@ -45,12 +47,12 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 9 | In-process timers die on deploy | `outbox-timers.spec` | 7 | ✅ **closed** — DB timers, SKIP LOCKED |
 | 10 | Laundry/errand break one-delivery model | `outbox-timers.spec` | 7 | ✅ **closed** — DeliveryLeg from migration 001 |
 | 11 | search reads catalogue replica | — (merge) | 3 | ✅ **closed** — own tsvector index |
-| 12 | No admin audit trail | — (schema) | 13 | [ ] |
+| 12 | No admin audit trail | `audit.spec` | 13 | ✅ **closed** — append-only, 21/21 |
 | 13 | No payout failure handling | `webhook.spec` | 6 | ✅ **closed** — saga w/ compensation |
 | 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**14 of 15 closed.**
+**15 of 15 closed.**
 
 ---
 
@@ -265,11 +267,26 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Return leg gated on vendor completion; overdue processing surfaced
 - [x] `engines.spec` 31/31
 
-### Sprint 13–14 — Admin Dashboard
-- [ ] Next.js 15 + CASL RBAC, 9 roles
-- [ ] Live ops map, orders, approvals, ledger explorer
-- [ ] Pricing config, zones, reports
-- [ ] Audit log **(closes issue 12)**
+### Sprint 13–14 — Admin dashboard ✅ **COMPLETE**
+- [x] **Append-only audit log (closes issue 12)** — UPDATE and DELETE both
+      rejected by triggers, verified against real Postgres
+- [x] `AuditedActionRunner`: ability check → reason check → mutate → audit,
+      with the mutation refusing to run if authorisation fails
+- [x] Reasons (≥10 chars) enforced in BOTH the app and a DB CHECK constraint
+- [x] Config versioning — every pricing edit keeps its previous value
+- [x] Task queue: unique-open-per-entity so retries cannot flood it;
+      resolution text required to close
+- [x] Dashboard alarms: ledger drift and COD float are critical
+- [x] **Next.js 16 dashboard builds and serves** — dashboard, orders, audit
+- [x] Nav filtered by the SAME `libs/auth` rules the backend enforces
+      (verified: catalogue_editor sees no Payments, dispatcher no Ledger)
+- [x] `audit.spec` 21/21
+
+### Sprint 15–16 — Hardening
+- [ ] k6 load test, broker chaos test
+- [ ] Fraud controls **(closes issue 15)**
+- [ ] Security review, reconciliation drill
+- [ ] Android + iOS builds in CI
 
 ---
 

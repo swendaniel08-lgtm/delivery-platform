@@ -20,5 +20,9 @@
   "include": [
     "libs/**/*.ts",
     "apps/**/*.ts"
+  ],
+  "exclude": [
+    "apps/web-admin/**",
+    "**/node_modules/**"
   ]
 }

@@ -15,3 +15,5 @@ build/
 *.iml
 .pub-cache/
 .pub/
+.next/
+next-env.d.ts
