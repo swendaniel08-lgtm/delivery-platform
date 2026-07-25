@@ -400,7 +400,17 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Cancel button follows PDF §8 and warns about the 50% charge during
       preparation
 - [x] `tracking_controller_test` 27/27
-- [ ] Vendor + rider app screens
+- [x] **Vendor order queue** — the 3-minute deadline is computed from the
+      server's `placedAt`, never a local timer: a push delayed 40s by the
+      network would otherwise show 3:00 when only 2:20 remains
+- [x] Expired orders stay VISIBLE with "Time up" rather than vanishing
+- [x] Most-urgent-first ordering; alerts stop for orders already handled or
+      already lost, so the sound never becomes noise
+- [x] Closing the shop is blocked while new orders are unanswered
+- [x] Earnings shown NET of commission everywhere
+- [x] Double-tap protection via a pending set
+- [x] `order_queue_controller_test` 29/29, `dashboard_screen_test` 19/19
+- [ ] Rider app screens
 
 ### Sprint 17 — Missing service schemas ✅
 - [x] **svc-dispatch**: rider availability with PostGIS, broadcast offers,
@@ -543,7 +553,17 @@ Paystack's sandbox — see "Verification pending" below.*
 - [x] Cancel button follows PDF §8 and warns about the 50% charge during
       preparation
 - [x] `tracking_controller_test` 27/27
-- [ ] Vendor + rider app screens
+- [x] **Vendor order queue** — the 3-minute deadline is computed from the
+      server's `placedAt`, never a local timer: a push delayed 40s by the
+      network would otherwise show 3:00 when only 2:20 remains
+- [x] Expired orders stay VISIBLE with "Time up" rather than vanishing
+- [x] Most-urgent-first ordering; alerts stop for orders already handled or
+      already lost, so the sound never becomes noise
+- [x] Closing the shop is blocked while new orders are unanswered
+- [x] Earnings shown NET of commission everywhere
+- [x] Double-tap protection via a pending set
+- [x] `order_queue_controller_test` 29/29, `dashboard_screen_test` 19/19
+- [ ] Rider app screens
 
 ### Sprint 17 — Missing service schemas ✅
 - [x] **svc-dispatch**: rider availability with PostGIS, broadcast offers,
