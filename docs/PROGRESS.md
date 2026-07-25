@@ -15,11 +15,11 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
 | **P3 — Delivery engine** | 7–10 | ✅ **Complete** | ██████████ 100% |
-| **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
+| **P4 — Completion** | 11–14 | 🟡 Sprint 11 done | ███░░░░░░░ 25% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P3 complete (Sprints 1–10). 312 specs green (253 unit + 59 integration incl. 7 end-to-end).**
-**Currently active: Sprint 11 — Messaging.**
+**Overall: P0–P3 complete + Sprint 11. 337 specs green (278 unit + 59 integration incl. 7 end-to-end).**
+**Currently active: Sprint 12 — Remaining engines.**
 
 **🎉 The system now RUNS.** A real NestJS service over HTTP drives an order
 from checkout to settlement against real Postgres.
@@ -34,7 +34,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 |---|---|---|---|---|
 | 1 | Ledger example doesn't balance | `ledger.spec` | 5 | ✅ **closed** — 7/7 green, migration committed |
 | 2 | COD booked at wrong time | `cod.spec` | 10 | ✅ **closed** — obligation at delivery, 20/20 |
-| 3 | Paystack call masking doesn't exist | — (design) | 11 | ✅ resolved in plan |
+| 3 | Paystack call masking doesn't exist | `messaging.spec` | 11 | ✅ **closed** — consented window, v2 Infobip |
 | 4 | Arkesel → Hubtel SMS | `otp.spec` | 2 | ✅ **closed** — failover tested |
 | 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
 | 6 | Client callback as payment truth | `webhook.spec` | 6 | ✅ **closed** — signed webhook only, 24/24 |
@@ -230,12 +230,19 @@ Paystack's sandbox — see "Verification pending" below.*
 
 ## P4 — Completion (Sprints 11–14)
 
-### Sprint 11 — Messaging
-*Needs: **Firebase project (FCM + APNs)**.*
-- [ ] Push, Hubtel SMS, in-app, templates
-- [ ] Chat (customer↔rider, customer↔vendor), 30-min auto-close
-- [ ] Parcel recipient SMS tracking link
-- [ ] Consented-call flow **(issue 3 v1)**
+### Sprint 11 — Messaging ✅ **COMPLETE**
+*Push built against a provider port; Firebase creds drop into env.*
+- [x] 14 notification templates covering the full order lifecycle
+- [x] **Idempotent dispatch** — a redelivered event notifies exactly once
+- [x] **Critical fallback**: a failed critical push falls back to SMS;
+      a failed non-critical push does NOT burn SMS credit
+- [x] SMS segment accounting (GSM-7 vs UCS-2); a test asserts every
+      SMS-bound template fits in ONE segment at maximum field lengths
+- [x] Parcel recipient SMS tracking link (no app required)
+- [x] Chat windows: participant checks, 30-minute post-delivery grace
+- [x] **Consented calling (closes issue 3 v1)** — number released only inside
+      the delivery window, never after; Infobip masking in Phase 2
+- [x] `messaging.spec` 25/25
 
 ### Sprint 12 — Remaining Engines
 - [ ] State machine B — pharmacy prescription review
