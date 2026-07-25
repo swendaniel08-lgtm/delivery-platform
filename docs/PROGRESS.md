@@ -13,13 +13,13 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 |---|---|---|---|
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
-| **P2 — Commerce core** | 3–6 | 🟡 Sprints 3–5 done | ████████░░ 85% |
+| **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
 | **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0, P1 complete + Sprints 3–5. 151 specs green (135 unit + 16 DB integration).**
-**Currently active: Sprint 6 — Paystack integration.**
+**Overall: P0, P1, P2 complete (Sprints 1–6). 184 specs green (168 unit + 16 DB integration).**
+**Currently active: Sprint 7 — Order engine & state machines.**
 
 ---
 
@@ -34,18 +34,18 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 3 | Paystack call masking doesn't exist | — (design) | 11 | ✅ resolved in plan |
 | 4 | Arkesel → Hubtel SMS | `otp.spec` | 2 | ✅ **closed** — failover tested |
 | 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
-| 6 | Client callback as payment truth | `webhook.spec` | 6 | [ ] |
+| 6 | Client callback as payment truth | `webhook.spec` | 6 | ✅ **closed** — signed webhook only, 24/24 |
 | 7 | Dispatch accept race | `dispatch.spec` | 8 | ✅ primitive proven · full test S8 |
 | 8 | Directions API cost bomb | `maps.spec` | 3 | ✅ **closed** — 89.7% reduction, 3 calls/order |
 | 9 | In-process timers die on deploy | `timers.spec` | 7 | [ ] |
 | 10 | Laundry/errand break one-delivery model | — (schema) | 7 | [ ] |
 | 11 | search reads catalogue replica | — (merge) | 3 | ✅ **closed** — own tsvector index |
 | 12 | No admin audit trail | — (schema) | 13 | [ ] |
-| 13 | No payout failure handling | — (saga) | 6 | [ ] |
+| 13 | No payout failure handling | `webhook.spec` | 6 | ✅ **closed** — saga w/ compensation |
 | 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**8 of 15 closed.**
+**10 of 15 closed.**
 
 ---
 
@@ -148,12 +148,19 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 - [x] `infra/scripts/test-db.sh` — DB integration runner
 - [ ] Nightly reconciliation job — **Sprint 6** (pairs with Paystack settlement pull)
 
-### Sprint 6 — Paystack Live
-*Needs: **Paystack test keys**.*
-- [ ] MoMo charge (`mtn|vod|atl`) + card
-- [ ] Signed webhook pipeline **(closes issue 6)** — `webhook.spec`
-- [ ] Refund saga, payout saga **(closes issue 13)**
-- [ ] PSP fee accounting
+### Sprint 6 — Paystack ✅ **COMPLETE**
+*Built against a transport port; real keys drop into env. Not yet run against
+Paystack's sandbox — see "Verification pending" below.*
+- [x] `PaystackClient`: MoMo charge (mtn/vod/atl), card init, verify, refund,
+      transfer recipients, transfers
+- [x] Deterministic `chargeReference` per attempt — retries cannot double-charge
+- [x] **Signed webhook pipeline (closes issue 6)** — HMAC-SHA512 on the raw
+      body, constant-time compare, dedupe, always-200
+- [x] **Payout saga (closes issue 13)** — compensation on failed/reversed,
+      handles Paystack reversing an already-successful transfer
+- [x] PSP fees booked to `PLATFORM_FEES_EXPENSE`, never netted
+- [x] Nightly reconciliation: 3-way check + payout halt on drift
+- [x] `webhook.spec` 24/24, `reconciliation.spec` 9/9
 
 ---
 
@@ -228,7 +235,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | GitHub token | pushes | ✅ used; **revoke when done** |
 | Hubtel account + sender ID | Sprint 2 | 🔴 **apply now** — external approval |
 | Google Maps keys | Sprint 3 | ⬜ |
-| Paystack test keys | Sprint 6 | ⬜ |
+| Paystack test keys | **sandbox verification** | 🟡 code complete, needs a live sandbox run |
 | Firebase FCM/APNs | Sprint 11 | ⬜ |
 | Apple Dev + Play Console | Sprint 16 | ⬜ |
 | Paystack live keys | Sprint 17 | ⬜ |
