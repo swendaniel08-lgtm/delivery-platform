@@ -20,7 +20,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
 
-**Next: the three Flutter apps — the largest remaining item, still at zero.**
+**Mobile started: shared packages first. 585 specs green (437 TS unit + 108 TS integration + 40 Dart).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -339,7 +339,23 @@ Paystack's sandbox — see "Verification pending" below.*
       - `ws.spec` 20/20
 - [ ] `media-svc`
 
-### Sprint 16 — Hardening
+### Sprint 16 — Mobile foundations 🟡 IN PROGRESS
+- [x] **`besonc_models`** — Pesewas as an int extension type (never double),
+      display matching the backend `formatCedis` exactly, OrderState mapping
+      that degrades unknown server states instead of crashing, addon
+      validation mirroring the server, cart lines that serialise ids only
+- [x] **`besonc_api`** — RFC-7807 → typed exceptions carrying the backend's
+      own message, idempotency keys stable ACROSS retries, GET retry with
+      jittered backoff, POST retried only when idempotent, single shared
+      token refresh under concurrent 401s, network failure during refresh
+      does NOT sign the user out
+- [x] Found and fixed: `encodeQueryComponent` sends `+` for spaces; our
+      Fastify backend expects `%20`
+- [x] `test-mobile.sh` runner — 40 Dart specs green
+- [ ] `besonc_ui` design system
+- [ ] Customer app screens
+
+### Sprint 17 — Hardening
 - [ ] k6 load test, broker chaos test
 - [ ] Fraud controls **(closes issue 15)**
 - [ ] Security review, reconciliation drill
@@ -401,7 +417,23 @@ Paystack's sandbox — see "Verification pending" below.*
       - `ws.spec` 20/20
 - [ ] `media-svc`
 
-### Sprint 16 — Hardening
+### Sprint 16 — Mobile foundations 🟡 IN PROGRESS
+- [x] **`besonc_models`** — Pesewas as an int extension type (never double),
+      display matching the backend `formatCedis` exactly, OrderState mapping
+      that degrades unknown server states instead of crashing, addon
+      validation mirroring the server, cart lines that serialise ids only
+- [x] **`besonc_api`** — RFC-7807 → typed exceptions carrying the backend's
+      own message, idempotency keys stable ACROSS retries, GET retry with
+      jittered backoff, POST retried only when idempotent, single shared
+      token refresh under concurrent 401s, network failure during refresh
+      does NOT sign the user out
+- [x] Found and fixed: `encodeQueryComponent` sends `+` for spaces; our
+      Fastify backend expects `%20`
+- [x] `test-mobile.sh` runner — 40 Dart specs green
+- [ ] `besonc_ui` design system
+- [ ] Customer app screens
+
+### Sprint 17 — Hardening
 - [ ] k6 load test, broker chaos test
 - [ ] Fraud controls **(closes issue 15)**
 - [ ] Security review, Ghana network conditions, reconciliation drill
