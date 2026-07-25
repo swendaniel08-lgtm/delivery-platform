@@ -94,6 +94,17 @@ export interface ServiceConfig {
   amqpUrl?: string | undefined;
   host?: string;
   logger?: boolean;
+  /**
+   * Route prefixes whose EXACT request bytes must be preserved on
+   * `req.rawBody`, e.g. `['/payments/webhooks']`.
+   *
+   * A PSP signs the literal body it sent. Re-serialising the parsed object
+   * reorders keys and changes whitespace, so `JSON.stringify(req.body)` will
+   * verify correctly in tests written against itself and then fail against
+   * every real Paystack delivery. It also loses malformed bodies entirely,
+   * which we still need to acknowledge rather than 400.
+   */
+  rawBodyRoutes?: string[];
 }
 
 export interface RunningService {
@@ -129,6 +140,50 @@ export async function createService(cfg: ServiceConfig): Promise<RunningService>
       }
       done();
     });
+
+  // Raw-body capture for signature-verified routes (webhooks).
+  if (cfg.rawBodyRoutes?.length) {
+    const prefixes = cfg.rawBodyRoutes;
+    const isRaw = (url: string) => prefixes.some((p) => url.startsWith(p));
+
+    // `preParsing` rather than a content-type parser: Nest's Fastify adapter
+    // installs its own JSON parser and re-registering collides with it. Here
+    // we buffer the incoming stream, stash the literal bytes, and hand the
+    // parser an identical replacement stream.
+    app.getHttpAdapter().getInstance()
+      .addHook('preParsing', async (req: any, _reply: any, payload: any) => {
+        if (!isRaw(req.url ?? '')) return payload;
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of payload) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const raw = Buffer.concat(chunks);
+        req.rawBody = raw.toString('utf8');
+
+        // A signed-but-unparseable body must still reach the controller so it
+        // can be acknowledged; otherwise the PSP retries it forever. Present
+        // valid JSON downstream and let the handler judge the real bytes.
+        //
+        // The substitute is padded with spaces to the SAME byte length as the
+        // original: Fastify checks the body it receives against the incoming
+        // Content-Length header and 400s on a mismatch before any controller
+        // runs. Trailing whitespace is legal JSON, so `{}` + padding parses.
+        let downstream = raw;
+        try {
+          JSON.parse(req.rawBody === '' ? '{}' : req.rawBody);
+        } catch {
+          downstream = raw.length >= 2
+            ? Buffer.concat([Buffer.from('{}'), Buffer.alloc(raw.length - 2, 0x20)])
+            : raw;
+        }
+
+        const { Readable } = await import('node:stream');
+        const replacement: any = Readable.from([downstream]);
+        replacement.headers = req.headers;
+        return replacement;
+      });
+  }
 
   // Fastify hook rather than Nest middleware: this must run for EVERY
   // request, including ones that never reach a controller (404s), because
