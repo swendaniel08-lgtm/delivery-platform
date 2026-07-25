@@ -18,7 +18,9 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete. Plumbing done. 526 specs green (437 unit + 89 integration incl. 16 end-to-end).**
+**Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
+
+**Next: the three Flutter apps — the largest remaining item, still at zero.**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -285,7 +287,7 @@ Paystack's sandbox — see "Verification pending" below.*
       (verified: catalogue_editor sees no Payments, dispatcher no Ledger)
 - [x] `audit.spec` 21/21
 
-### Sprint 15 — Plumbing 🟡 IN PROGRESS
+### Sprint 15 — Plumbing ✅ **COMPLETE**
 - [x] **Outbox relay → RabbitMQ** — the missing link between services
       - publisher confirms, so rows are never marked sent when dropped
       - `FOR UPDATE SKIP LOCKED`: two relays never double-publish (tested)
@@ -312,7 +314,19 @@ Paystack's sandbox — see "Verification pending" below.*
       windows by sensitivity, image variants. `admin-media.spec` 33/33
 - [x] Money formatting unified in `libs/money` — the dashboard and the API
       had drifted (`12400.00` vs `12,400.00`); one formatter now serves both
-- [ ] HTTP wiring for the remaining services (last plumbing item)
+- [x] **Shared service bootstrap** — one `createService()` gives every
+      service Fastify, RFC-7807, correlation IDs, health/readiness, the
+      outbox relay and graceful shutdown. Ten hand-written bootstraps would
+      have been ten subtly different ones
+- [x] Liveness deliberately does NOT check the database (a DB blip must not
+      restart every pod at once); readiness does, and reports `draining`
+      during shutdown so the load balancer removes us first
+- [x] Centralised port map, fail-fast env validation, SIGTERM draining
+- [x] `svc-pricing` wired over HTTP as the worked example
+- [x] **Found a real gap: a 25kg parcel returned 500.** `PricingError` did
+      not extend `AppError`, so client input errors were reported as server
+      faults. Now 422 with a readable reason
+- [x] `service-bootstrap.e2e.spec` 19/19
 - [x] **WebSocket server** — real `ws` server, tested over real sockets
       - authenticate on connect (4401 close), authorise per room on subscribe
       - **found a real bug: riders could not enter their own order's room**
@@ -335,7 +349,7 @@ Paystack's sandbox — see "Verification pending" below.*
 
 ## P5 — Launch (Sprints 15–18)
 
-### Sprint 15 — Plumbing 🟡 IN PROGRESS
+### Sprint 15 — Plumbing ✅ **COMPLETE**
 - [x] **Outbox relay → RabbitMQ** — the missing link between services
       - publisher confirms, so rows are never marked sent when dropped
       - `FOR UPDATE SKIP LOCKED`: two relays never double-publish (tested)
@@ -362,7 +376,19 @@ Paystack's sandbox — see "Verification pending" below.*
       windows by sensitivity, image variants. `admin-media.spec` 33/33
 - [x] Money formatting unified in `libs/money` — the dashboard and the API
       had drifted (`12400.00` vs `12,400.00`); one formatter now serves both
-- [ ] HTTP wiring for the remaining services (last plumbing item)
+- [x] **Shared service bootstrap** — one `createService()` gives every
+      service Fastify, RFC-7807, correlation IDs, health/readiness, the
+      outbox relay and graceful shutdown. Ten hand-written bootstraps would
+      have been ten subtly different ones
+- [x] Liveness deliberately does NOT check the database (a DB blip must not
+      restart every pod at once); readiness does, and reports `draining`
+      during shutdown so the load balancer removes us first
+- [x] Centralised port map, fail-fast env validation, SIGTERM draining
+- [x] `svc-pricing` wired over HTTP as the worked example
+- [x] **Found a real gap: a 25kg parcel returned 500.** `PricingError` did
+      not extend `AppError`, so client input errors were reported as server
+      faults. Now 422 with a readable reason
+- [x] `service-bootstrap.e2e.spec` 19/19
 - [x] **WebSocket server** — real `ws` server, tested over real sockets
       - authenticate on connect (4401 close), authorise per room on subscribe
       - **found a real bug: riders could not enter their own order's room**

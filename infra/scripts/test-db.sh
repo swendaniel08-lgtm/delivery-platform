@@ -21,7 +21,7 @@ for _ in $(seq 1 40); do $D exec admindb  pg_isready -U postgres -q 2>/dev/null 
 for _ in $(seq 1 50); do $D exec mq rabbitmq-diagnostics -q ping >/dev/null 2>&1 && break; sleep 3; done
 
 fail=0
-for f in apps/svc-payment/test/ledger-service.spec.ts apps/svc-order/test/outbox-timers.spec.ts apps/svc-dispatch/test/dispatch-redis.spec.ts apps/e2e/test/order-flow.e2e.spec.ts apps/svc-payment/test/cod.spec.ts apps/svc-admin/test/audit.spec.ts apps/e2e/test/outbox-relay.e2e.spec.ts; do
+for f in apps/svc-payment/test/ledger-service.spec.ts apps/svc-order/test/outbox-timers.spec.ts apps/svc-dispatch/test/dispatch-redis.spec.ts apps/e2e/test/order-flow.e2e.spec.ts apps/svc-payment/test/cod.spec.ts apps/svc-admin/test/audit.spec.ts apps/e2e/test/outbox-relay.e2e.spec.ts apps/e2e/test/service-bootstrap.e2e.spec.ts; do
   echo "── $f"
   out=$(npx tsx "$f" 2>&1)
   echo "$out" | grep -E "^# (tests|pass|fail)" | sed 's/^/   /'

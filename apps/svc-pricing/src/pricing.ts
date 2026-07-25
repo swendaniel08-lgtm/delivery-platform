@@ -9,6 +9,7 @@
  */
 
 import { add, bps, clamp, mul, pesewas, type Pesewas } from '../../../libs/money/src/money.ts';
+import { AppError } from '../../../libs/platform/src/errors.ts';
 
 export type ServiceType =
   | 'food' | 'groceries' | 'shop' | 'market_catalogue' | 'market_list'
@@ -86,7 +87,16 @@ export interface SurchargeFlags {
   heavy?: boolean;
 }
 
-export class PricingError extends Error {}
+/**
+ * Invalid pricing INPUT (negative distance, over-weight parcel, unknown
+ * service). These are client errors — surfaced as 422 with a readable
+ * message rather than a 500 that tells the customer nothing.
+ */
+export class PricingError extends AppError {
+  constructor(message: string) {
+    super(422, 'pricing-invalid', 'Invalid pricing request', message);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Delivery fee                                                        */
