@@ -18,7 +18,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete + outbox relay. 398 specs green (309 unit + 89 integration incl. 16 end-to-end).**
+**Overall: P0–P4 complete + relay, gateway, customer BFF. 445 specs green (356 unit + 89 integration incl. 16 end-to-end).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -293,8 +293,13 @@ Paystack's sandbox — see "Verification pending" below.*
       - topic exchange + per-consumer DLQ so a poison message cannot block a queue
       - consumer-side dedupe keyed on (group, eventId)
 - [x] `outbox-relay.e2e.spec` 9/9 vs real Postgres + real RabbitMQ
-- [ ] Gateway (JWT, rate limit, routing)
-- [ ] 4 BFFs
+- [x] **Gateway** — JWT verification, prefix routing, coarse role gate,
+      tiered rate limiting (per-user when authenticated, per-IP when not),
+      identity forwarding that clients cannot spoof, CORS allow-list,
+      security headers. `gateway.spec` 30/30
+- [x] **Customer BFF** — one call per screen, parallel upstreams, independent
+      degradation, batched fee quotes. `bff.spec` 17/17
+- [ ] Vendor / rider / admin BFFs
 - [ ] HTTP for the remaining 9 services
 - [ ] WebSocket server for tracking/chat
 - [ ] `media-svc`
@@ -317,8 +322,13 @@ Paystack's sandbox — see "Verification pending" below.*
       - topic exchange + per-consumer DLQ so a poison message cannot block a queue
       - consumer-side dedupe keyed on (group, eventId)
 - [x] `outbox-relay.e2e.spec` 9/9 vs real Postgres + real RabbitMQ
-- [ ] Gateway (JWT, rate limit, routing)
-- [ ] 4 BFFs
+- [x] **Gateway** — JWT verification, prefix routing, coarse role gate,
+      tiered rate limiting (per-user when authenticated, per-IP when not),
+      identity forwarding that clients cannot spoof, CORS allow-list,
+      security headers. `gateway.spec` 30/30
+- [x] **Customer BFF** — one call per screen, parallel upstreams, independent
+      degradation, batched fee quotes. `bff.spec` 17/17
+- [ ] Vendor / rider / admin BFFs
 - [ ] HTTP for the remaining 9 services
 - [ ] WebSocket server for tracking/chat
 - [ ] `media-svc`
