@@ -378,7 +378,16 @@ Paystack's sandbox — see "Verification pending" below.*
       the idempotency key is generated once and reused across retries so a
       timeout cannot create two orders; MoMo waits for handset approval
       rather than celebrating on HTTP 200. `checkout_controller_test` 23/23
-- [ ] Address picker, live tracking
+- [x] **Address controller (PDF §5, the Ghana address problem)** — the GPS
+      pin is the only authoritative field; the LANDMARK is required because
+      it is what riders actually read; area name, GhanaPostGPS and
+      instructions are all optional, since requiring them would block real
+      customers whose area has no name in Google's data
+- [x] Pins outside Ghana are refused; moving the pin discards the stale area
+      name; GhanaPostGPS normalises "ga 123 4567" → "GA-123-4567"
+- [x] Autocomplete never fires below 3 characters (Google bills per session)
+- [x] `address_controller_test` 26/26
+- [ ] Live tracking screen
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Missing service schemas ✅
@@ -500,7 +509,16 @@ Paystack's sandbox — see "Verification pending" below.*
       the idempotency key is generated once and reused across retries so a
       timeout cannot create two orders; MoMo waits for handset approval
       rather than celebrating on HTTP 200. `checkout_controller_test` 23/23
-- [ ] Address picker, live tracking
+- [x] **Address controller (PDF §5, the Ghana address problem)** — the GPS
+      pin is the only authoritative field; the LANDMARK is required because
+      it is what riders actually read; area name, GhanaPostGPS and
+      instructions are all optional, since requiring them would block real
+      customers whose area has no name in Google's data
+- [x] Pins outside Ghana are refused; moving the pin discards the stale area
+      name; GhanaPostGPS normalises "ga 123 4567" → "GA-123-4567"
+- [x] Autocomplete never fires below 3 characters (Google bills per session)
+- [x] `address_controller_test` 26/26
+- [ ] Live tracking screen
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Missing service schemas ✅
