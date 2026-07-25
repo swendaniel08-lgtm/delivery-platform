@@ -265,6 +265,174 @@ describe('customer BFF contract', () => {
   });
 });
 
+
+/* ------------------------------------------------------------------ */
+/* Checkout                                                            */
+/* ------------------------------------------------------------------ */
+
+describe('customer checkout', () => {
+  function stubCheckout(over: { codEligible?: boolean; codReason?: string } = {}) {
+    reset();
+    route('GET /users/me/addresses', {
+      addresses: [{
+        id: 'a1', label: 'Home', latitude: 5.5560, longitude: -0.1821,
+        landmark: 'behind the MTN mast', isDefault: true,
+      }],
+    });
+    route('GET /catalogue/stores/s1', {
+      store: {
+        id: 's1', name: 'Auntie Muni Waakye', serviceType: 'food',
+        latitude: 5.6037, longitude: -0.1870, isOpen: true,
+      },
+      items: [{ id: 'i1', name: 'Jollof Rice', basePricePesewas: '3500', isAvailable: true }],
+    });
+    // The catalogue prices the line; the client's number is never trusted.
+    route('POST /catalogue/items/i1/price', {
+      unitPricePesewas: '3500', quantity: 2, linePesewas: '7000',
+    });
+    route('POST /pricing/quote', {
+      itemTotalPesewas: '7000', deliveryFeePesewas: '800',
+      serviceFeePesewas: '350', totalPesewas: '8150',
+      split: { vendorPesewas: '5950', riderPesewas: '800', platformPesewas: '1400' },
+    });
+    route('POST /pricing/cod/eligible', {
+      eligible: over.codEligible ?? false,
+      ...(over.codReason ? { reason: over.codReason } : {}),
+    });
+    route('POST /orders', {
+      id: 'o-new', humanRef: '#515204', state: 'pending_payment',
+      totalPesewas: '8150',
+    });
+  }
+
+  const cart = {
+    storeId: 's1',
+    lines: [{ itemId: 'i1', quantity: 2, addonOptionIds: [] }],
+  };
+
+  test('the quote returns the canonical GHS 81.50 breakdown', async () => {
+    stubCheckout();
+    const r = await post(customerSvc.url, '/api/customer/checkout/quote',
+      cart, as('c1', 'customer'));
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 201);
+    assert.equal(b.itemTotalPesewas, '7000');
+    assert.equal(b.deliveryFeePesewas, '800');
+    assert.equal(b.serviceFeePesewas, '350');
+    assert.equal(b.totalPesewas, '8150');
+    // Matches CheckoutQuote.fromJson in the Flutter app.
+    for (const k of ['itemTotalPesewas', 'deliveryFeePesewas',
+      'serviceFeePesewas', 'totalPesewas', 'codEligible']) {
+      assert.ok(k in b, `quote is missing "${k}"`);
+    }
+  });
+
+  test('THE SERVER REPRICES — a client-supplied price is ignored', async () => {
+    stubCheckout();
+    const r = await post(customerSvc.url, '/api/customer/checkout/quote', {
+      ...cart,
+      // A modified app claiming the jollof costs one pesewa.
+      lines: [{ itemId: 'i1', quantity: 2, pricePesewas: '1', linePesewas: '1' }],
+    }, as('c1', 'customer'));
+    const b = await r.json() as any;
+
+    assert.equal(b.itemTotalPesewas, '7000',
+      'prices come from the catalogue, never from the request body');
+    assert.equal(b.totalPesewas, '8150');
+  });
+
+  test('an item removed from the menu is refused, not silently dropped', async () => {
+    stubCheckout();
+    const r = await post(customerSvc.url, '/api/customer/checkout/quote', {
+      storeId: 's1', lines: [{ itemId: 'deleted-item', quantity: 1 }],
+    }, as('c1', 'customer'));
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 422);
+    assert.match(JSON.stringify(b.errors), /no longer on the menu/);
+  });
+
+  test('COD ineligibility carries the reason to the app', async () => {
+    stubCheckout({ codEligible: false, codReason: 'Order exceeds the GHS 200 cash limit' });
+    const b = await (await post(customerSvc.url, '/api/customer/checkout/quote',
+      cart, as('c1', 'customer'))).json() as any;
+
+    assert.equal(b.codEligible, false);
+    assert.equal(b.codReason, 'Order exceeds the GHS 200 cash limit',
+      'the disabled option must say WHY, not just be grey');
+  });
+
+  test('a customer with no address cannot be quoted', async () => {
+    stubCheckout();
+    route('GET /users/me/addresses', { addresses: [] });
+    const r = await post(customerSvc.url, '/api/customer/checkout/quote',
+      cart, as('c1', 'customer'));
+    assert.equal(r.status, 422);
+  });
+
+  test('placing an order requires an idempotency key', async () => {
+    stubCheckout();
+    const r = await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'prepaid' }, as('c1', 'customer'));
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 422);
+    assert.match(JSON.stringify(b.errors), /retry cannot double-order/);
+  });
+
+  test('a prepaid order is created and flagged as needing approval', async () => {
+    stubCheckout();
+    const r = await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'prepaid' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'checkout-abc-123' });
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 201);
+    assert.equal(b.orderId, 'o-new');
+    assert.equal(b.totalPesewas, '8150');
+    assert.equal(b.requiresApproval, true,
+      'mobile money needs the customer to approve a prompt — the app must wait');
+    assert.ok(calls.includes('POST /orders'));
+  });
+
+  test('CASH IS REFUSED when the server says it is ineligible', async () => {
+    stubCheckout({ codEligible: false, codReason: 'Cash on delivery is unavailable after 9pm' });
+    const r = await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'cod' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'checkout-cod-1' });
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 422);
+    assert.match(JSON.stringify(b.errors), /after 9pm/);
+    assert.ok(!calls.includes('POST /orders'),
+      'no order may be created for a payment method the server rejected');
+  });
+
+  test('cash goes through when eligible', async () => {
+    stubCheckout({ codEligible: true });
+    const r = await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'cod' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'checkout-cod-2' });
+
+    assert.equal(r.status, 201);
+    const b = await r.json() as any;
+    assert.equal(b.requiresApproval, false, 'cash needs no Paystack prompt');
+  });
+
+  test('the idempotency key is forwarded to order-svc', async () => {
+    stubCheckout();
+    await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'prepaid' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'key-forwarded' });
+
+    // The stub records method+path; the header reaching the upstream is
+    // asserted by the ServiceClient unit test. Here we assert the call
+    // happened exactly once for one key.
+    assert.equal(calls.filter((c) => c === 'POST /orders').length, 1);
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Vendor                                                              */
 /* ------------------------------------------------------------------ */

@@ -24,6 +24,7 @@ import {
   ServiceClient, settleWithFallback,
 } from '../../../libs/platform/src/http/service-client.ts';
 import { formatCedis } from '../../../libs/money/src/money.ts';
+import { haversineMetres } from '../../../libs/maps/src/geohash.ts';
 import { SERVICE_TILES, prepRange } from './bff.ts';
 
 export const UPSTREAMS = Symbol('CUSTOMER_UPSTREAMS');
@@ -39,6 +40,16 @@ export interface CustomerUpstreams {
   order: ServiceClient;
   pricing: ServiceClient;
   tracking: ServiceClient;
+}
+
+function requireFields(body: any, fields: string[]): void {
+  const errors: Record<string, string[]> = {};
+  for (const f of fields) {
+    if (body?.[f] === undefined || body[f] === null || body[f] === '') {
+      errors[f] = ['is required'];
+    }
+  }
+  if (Object.keys(errors).length) throw new ValidationError(errors);
 }
 
 function bearer(auth?: string): string {
@@ -202,6 +213,158 @@ export class CustomerBffController {
       // Tracking being down must not look like a lost order.
       return { orderId: id, riderAssigned: false, position: null, degraded: true };
     }
+  }
+
+
+  /**
+   * Price a cart before the customer commits.
+   *
+   * The APP NEVER ADDS ANYTHING UP. It sends what is in the cart and renders
+   * whatever comes back, so the number on the button is by construction the
+   * number the ledger will settle. A client that computes its own total
+   * eventually disagrees with the server, and the server is right.
+   */
+  @Post('checkout/quote')
+  async quote(@Body() body: any, @Headers('authorization') auth?: string) {
+    const c = this.claims(auth);
+    const token = bearer(auth);
+    requireFields(body, ['storeId', 'lines']);
+
+    // Re-price every line from the CATALOGUE, not from prices the client
+    // sent. Otherwise a modified app pays whatever it likes.
+    const store = await this.up.catalogue.get(
+      `/catalogue/stores/${body.storeId}`, { bearerToken: token },
+    );
+    const itemsById = new Map<string, any>(
+      (store.items ?? []).map((i: any) => [i.id, i]),
+    );
+
+    let itemTotal = 0n;
+    for (const line of body.lines as any[]) {
+      const item = itemsById.get(line.itemId);
+      if (!item) {
+        throw new ValidationError({
+          lines: [`"${line.itemId}" is no longer on the menu`],
+        });
+      }
+      const priced = await this.up.catalogue.post(
+        `/catalogue/items/${line.itemId}/price`,
+        {
+          addonItemIds: line.addonOptionIds ?? [],
+          variantOptionIds: line.variantOptionIds ?? [],
+          quantity: line.quantity ?? 1,
+        },
+        { bearerToken: token },
+      );
+      itemTotal += BigInt(priced.linePesewas);
+    }
+
+    const address = await this.defaultAddress(token);
+    if (!address) {
+      throw new ValidationError({ addressId: ['Add a delivery address first'] });
+    }
+
+    const distanceMetres = haversineMetres(
+      { lat: store.store.latitude, lng: store.store.longitude },
+      { lat: address.latitude, lng: address.longitude },
+    );
+
+    const quote = await this.up.pricing.post('/pricing/quote', {
+      service: store.store.serviceType ?? 'food',
+      itemTotalPesewas: itemTotal.toString(),
+      distanceMetres: Math.round(distanceMetres),
+    }, { bearerToken: token });
+
+    // COD eligibility is a SERVER decision (PDF §7): order size, customer
+    // history, rider float and the 9pm cutoff. The app only renders it.
+    const cod = await this.up.pricing.post('/pricing/cod/eligible', {
+      orderTotalPesewas: quote.totalPesewas,
+      service: store.store.serviceType ?? 'food',
+      customerCompletedOrders: 0,
+    }, { bearerToken: token }).catch(() => ({ eligible: false, reason: undefined }));
+
+    return {
+      itemTotalPesewas: quote.itemTotalPesewas,
+      deliveryFeePesewas: quote.deliveryFeePesewas,
+      serviceFeePesewas: quote.serviceFeePesewas,
+      totalPesewas: quote.totalPesewas,
+      codEligible: cod.eligible === true,
+      ...(cod.reason ? { codReason: cod.reason } : {}),
+      distanceMetres: Math.round(distanceMetres),
+    };
+  }
+
+  /**
+   * Place the order.
+   *
+   * Idempotent on the client's key: a timeout on a Ghanaian mobile network
+   * is routine, and a retry must never produce a second order the customer
+   * pays for twice.
+   */
+  @Post('checkout')
+  async checkout(
+    @Body() body: any,
+    @Headers('authorization') auth?: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    const c = this.claims(auth);
+    const token = bearer(auth);
+    requireFields(body, ['storeId', 'lines', 'paymentIntent']);
+
+    if (!idempotencyKey) {
+      throw new ValidationError({
+        'idempotency-key': ['header is required so a retry cannot double-order'],
+      });
+    }
+
+    // Re-quote server-side. The client's displayed total is advisory; this
+    // is the figure the order is actually created with.
+    const quote = await this.quote(body, auth);
+
+    if (body.paymentIntent === 'cod' && !quote.codEligible) {
+      throw new ValidationError({
+        paymentIntent: [quote.codReason ?? 'Cash is not available for this order'],
+      });
+    }
+
+    const address = await this.defaultAddress(token);
+    const store = await this.up.catalogue.get(
+      `/catalogue/stores/${body.storeId}`, { bearerToken: token },
+    );
+
+    const order = await this.up.order.post('/orders', {
+      customerId: c.sub,
+      storeId: body.storeId,
+      service: store.store.serviceType ?? 'food',
+      itemTotalPesewas: quote.itemTotalPesewas,
+      deliveryFeePesewas: quote.deliveryFeePesewas,
+      serviceFeePesewas: quote.serviceFeePesewas,
+      paymentIntent: body.paymentIntent,
+      legs: [{
+        sequence: 1,
+        legType: 'vendor_to_customer',
+        pickup: { lat: store.store.latitude, lng: store.store.longitude },
+        dropoff: { lat: address!.latitude, lng: address!.longitude },
+        feePesewas: quote.deliveryFeePesewas,
+      }],
+    }, { bearerToken: token, idempotencyKey });
+
+    return {
+      orderId: order.id,
+      humanRef: order.humanRef,
+      state: order.state,
+      totalPesewas: order.totalPesewas,
+      // Mobile money needs the customer to approve a prompt, so the app
+      // must WAIT rather than show a success screen on this response.
+      requiresApproval: body.paymentIntent === 'prepaid',
+    };
+  }
+
+  private async defaultAddress(token: string) {
+    const res = await this.up.identity.get('/users/me/addresses',
+      { bearerToken: token });
+    return (res.addresses ?? []).find((a: any) => a.isDefault)
+      ?? res.addresses?.[0] ?? null;
   }
 
   private async requireLocation(q: any, token: string) {

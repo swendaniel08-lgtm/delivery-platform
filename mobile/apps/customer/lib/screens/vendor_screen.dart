@@ -78,6 +78,16 @@ class VendorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // MUST listen to the cart. The bottom bar is driven by `cart.isEmpty`,
+    // and without a subscription it never appears after the first item is
+    // added — the customer adds food and has no way to reach the cart.
+    return AnimatedBuilder(
+      animation: cart,
+      builder: (context, _) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
     return Scaffold(
       backgroundColor: BesoncColors.canvas,
       appBar: AppBar(title: Text(store.name)),
@@ -97,20 +107,29 @@ class VendorScreen extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: 20, fontWeight: FontWeight.w700)),
                 const SizedBox(height: BesoncSpace.xs),
-                Row(
+                // Wrap, not Row. On a 360dp phone "4.7 · 20-40 min ·
+                // GHS 8.00 delivery" overflows by a few pixels, and only the
+                // LAST child was Flexible so the prep time could not shrink.
+                // Wrapping to a second line reads better than an ellipsis
+                // that hides the delivery fee.
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: BesoncSpace.sm,
+                  runSpacing: 2,
                   children: [
-                    const Icon(Icons.star, size: 15, color: BesoncColors.warning),
-                    const SizedBox(width: 4),
-                    Text(store.rating.toStringAsFixed(1)),
-                    const Text('  ·  ', style: TextStyle(color: BesoncColors.inkMuted)),
-                    Text(store.prepEstimate,
-                        style: const TextStyle(color: BesoncColors.inkMuted)),
-                    const Text('  ·  ', style: TextStyle(color: BesoncColors.inkMuted)),
-                    Flexible(
-                      child: Text('${store.deliveryFee} delivery',
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: BesoncColors.inkMuted)),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star, size: 15,
+                            color: BesoncColors.warning),
+                        const SizedBox(width: 4),
+                        Text(store.rating.toStringAsFixed(1)),
+                      ],
                     ),
+                    Text('· ${store.prepEstimate}',
+                        style: const TextStyle(color: BesoncColors.inkMuted)),
+                    Text('· ${store.deliveryFee} delivery',
+                        style: const TextStyle(color: BesoncColors.inkMuted)),
                   ],
                 ),
                 if (!store.isOpen) ...[
