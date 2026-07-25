@@ -15,11 +15,13 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
 | **P3 — Delivery engine** | 7–10 | ✅ **Complete** | ██████████ 100% |
-| **P4 — Completion** | 11–14 | 🟡 Sprint 11 done | ███░░░░░░░ 25% |
+| **P4 — Completion** | 11–14 | 🟡 Sprints 11–12 done | █████░░░░░ 50% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P3 complete + Sprint 11. 337 specs green (278 unit + 59 integration incl. 7 end-to-end).**
-**Currently active: Sprint 12 — Remaining engines.**
+**Overall: P0–P3 complete + Sprints 11–12. 368 specs green (309 unit + 59 integration incl. 7 end-to-end).**
+**Currently active: Sprint 13–14 — Admin dashboard.**
+
+**All 8 services from the PDF are now implemented.**
 
 **🎉 The system now RUNS.** A real NestJS service over HTTP drives an order
 from checkout to settlement against real Postgres.
@@ -244,11 +246,24 @@ Paystack's sandbox — see "Verification pending" below.*
       the delivery window, never after; Infobip masking in Phase 2
 - [x] `messaging.spec` 25/25
 
-### Sprint 12 — Remaining Engines
-- [ ] State machine B — pharmacy prescription review
-- [ ] State machine C — laundry two legs
-- [ ] State machine E — errand, top-up, receipts
-- [ ] Market shopping list
+### Sprint 12 — Remaining engines ✅ **COMPLETE**
+*State machines A–E were all built in Sprint 7; this is the business logic.*
+- [x] **Pharmacy review**: approve / reject / modify. A pharmacist may reduce
+      but never increase; non-substitutable medicines are protected; a review
+      can never raise the bill; every change carries a customer-readable reason
+- [x] Approval blocked when prescription items have no document on file
+- [x] **Errand settlement**: underspend refunds, ≤15% auto-charges,
+      >15% requires explicit approval and takes **nothing** without it
+- [x] Receipts mandatory before any overage; refunds need none
+- [x] Top-up requests need amount + reason + photo evidence
+- [x] Unavailable items offer substitute-or-refund with a price delta
+- [x] **Market shopping list**: validation, 30-item cap, estimate totalling
+- [x] **Laundry**: per-item and per-bag pricing, both delivery fees quoted
+      up front, ready-time estimate
+- [x] Two-leg settlement — **trip-1 rider paid immediately, vendor only after
+      the return leg**; different riders per leg supported
+- [x] Return leg gated on vendor completion; overdue processing surfaced
+- [x] `engines.spec` 31/31
 
 ### Sprint 13–14 — Admin Dashboard
 - [ ] Next.js 15 + CASL RBAC, 9 roles
