@@ -18,7 +18,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete + relay, gateway, customer BFF. 445 specs green (356 unit + 89 integration incl. 16 end-to-end).**
+**Overall: P0–P4 complete + relay, gateway, 3 BFFs. 472 specs green (383 unit + 89 integration incl. 16 end-to-end).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -299,7 +299,13 @@ Paystack's sandbox — see "Verification pending" below.*
       security headers. `gateway.spec` 30/30
 - [x] **Customer BFF** — one call per screen, parallel upstreams, independent
       degradation, batched fee quotes. `bff.spec` 17/17
-- [ ] Vendor / rider / admin BFFs
+- [x] **Vendor BFF** — one-call dashboard, live accept countdown sorted
+      most-urgent-first, earnings-after-commission, tenant isolation on every
+      method. `bff.spec` (vendor+rider) 27/27
+- [x] **Rider BFF** — one next action at a time, navigation target follows
+      leg state, COD balance always visible and blocking when overdue,
+      proof + cash confirmation forced on completion
+- [ ] Admin BFF
 - [ ] HTTP for the remaining 9 services
 - [ ] WebSocket server for tracking/chat
 - [ ] `media-svc`
@@ -328,7 +334,13 @@ Paystack's sandbox — see "Verification pending" below.*
       security headers. `gateway.spec` 30/30
 - [x] **Customer BFF** — one call per screen, parallel upstreams, independent
       degradation, batched fee quotes. `bff.spec` 17/17
-- [ ] Vendor / rider / admin BFFs
+- [x] **Vendor BFF** — one-call dashboard, live accept countdown sorted
+      most-urgent-first, earnings-after-commission, tenant isolation on every
+      method. `bff.spec` (vendor+rider) 27/27
+- [x] **Rider BFF** — one next action at a time, navigation target follows
+      leg state, COD balance always visible and blocking when overdue,
+      proof + cash confirmation forced on completion
+- [ ] Admin BFF
 - [ ] HTTP for the remaining 9 services
 - [ ] WebSocket server for tracking/chat
 - [ ] `media-svc`
