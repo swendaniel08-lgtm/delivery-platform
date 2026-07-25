@@ -1,0 +1,18 @@
+name: besonc
+packages:
+  - apps/*
+  - packages/*
+
+command:
+  bootstrap:
+    runPubGetInParallel: true
+
+scripts:
+  analyze:
+    run: melos exec -- flutter analyze
+    description: Static analysis across all apps and packages
+  test:
+    run: melos exec --dir-exists=test -- flutter test
+    description: Run all tests
+  format:
+    run: melos exec -- dart format --set-exit-if-changed .

@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "nodenext", "moduleResolution": "nodenext",
+    "strict": true, "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true, "skipLibCheck": true, "allowImportingTsExtensions": true, "noEmit": true, "declaration": true,
+    "types": ["node"]
+  },
+  "include": ["libs/**/*.ts", "apps/**/*.ts"]
+}

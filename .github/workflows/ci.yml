@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — typecheck + money.spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm }
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.base.json
+      - name: money.spec (closes issue #5)
+        run: npm test
+
+  ledger:
+    name: Ledger — ledger.spec (closes issue #1)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: payment
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migration
+        env: { PGPASSWORD: pw }
+        run: psql -h localhost -U postgres -d payment -v ON_ERROR_STOP=1
+             -f apps/svc-payment/migrations/001_ledger.sql
+      - name: Run ledger.spec
+        env: { PGPASSWORD: pw }
+        run: |
+          out=$(psql -h localhost -U postgres -d payment -v ON_ERROR_STOP=1 \
+                -f apps/svc-payment/test/ledger.spec.sql 2>&1)
+          echo "$out"
+          echo "$out" | grep -q "ALL TESTS PASSED" || exit 1
+
+  mobile:
+    name: Flutter — analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.35.7', channel: stable }
+      - run: dart pub global activate melos
+      - working-directory: mobile
+        run: melos bootstrap
+      - working-directory: mobile
+        run: melos run analyze
+      - working-directory: mobile
+        run: melos run test
+
+  # Android/iOS binaries are built in CI only — the dev sandbox lacks RAM/macOS.
+  android:
+    name: Android APK (debug)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.35.7', channel: stable }
+      - working-directory: mobile/apps/customer
+        run: flutter build apk --debug
