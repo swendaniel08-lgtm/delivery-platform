@@ -9,10 +9,10 @@
 | Area | Measured | Status |
 |---|---|---|
 | Backend + shared libs | ~61,000 lines TS | ✅ Thorough, well-tested |
-| Tests | **1,199 specs green** (713 TS unit + 133 TS integration + 353 Dart) | ✅ Real, incl. end-to-end |
+| Tests | **1,264 specs green** (739 TS unit + 133 TS integration + 392 Dart) | ✅ Real, incl. end-to-end |
 | SQL migrations | 9 services | ✅ Constraints enforce invariants |
 | Admin dashboard | Next.js 16, 4 routes, builds & serves | 🟡 Renders **stubbed data** |
-| **Flutter apps** | ~11,000 lines Dart | 🟡 **All three boot, sign in and call their BFF**; most screens still to build |
+| **Flutter apps** | ~13,000 lines Dart | 🟡 **Customer can browse, cart and CHECK OUT**; vendor/rider still one screen each |
 | Shared Dart packages | models, api, ui, auth real; 4 still stubs | 🟡 Partly built |
 | HTTP surface | **all 10 services + 4 BFFs + gateway** | ✅ Complete |
 | **Runnable processes** | **15/15 boot healthy on real Postgres** | ✅ `make run` |

@@ -20,7 +20,29 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**1,199 specs green — 713 TS unit + 133 TS integration + 353 Dart.**
+**1,264 specs green — 739 TS unit + 133 TS integration + 392 Dart.**
+
+**Session of 2026-07-25 — the customer app can take an order**
+
+Fifth block:
+
+- **Cart and checkout screens.** home → store → cart → checkout → order
+  placed, verified end to end in a widget test against the real screens.
+- `POST /checkout/quote` and `POST /checkout` on the customer BFF. **The
+  server reprices every line from the catalogue** — a modified app claiming
+  the jollof costs one pesewa is ignored.
+- Verified against the LIVE stack with a real vendor in Postgres: GHS 15.20
+  delivery for an actual 5.3km Accra Central → Osu distance, COD correctly
+  refused for a new customer above GHS 50.
+
+| Bug found by running it | Impact |
+|---|---|
+| **Idempotency accepted but never enforced** | 3 retries → **3 orders, 3 charges**. The worst bug found so far |
+| `ServiceClient` collapsed every upstream error into 502 | A 409 reached the app as "retry me", which could never succeed |
+| `VendorScreen` never listened to the cart | Add food, and the cart bar never appears — no way to check out |
+| Vendor header Row overflowed 4.5px at 360dp | Only the last child was Flexible |
+| Checkout quote sat below the fold | Customer had to scroll to see what they were paying |
+| Address change invalidated the quote with no re-quote | Button stuck on "Calculating your total…" forever |
 
 **Session of 2026-07-25 — the platform is deployable**
 
