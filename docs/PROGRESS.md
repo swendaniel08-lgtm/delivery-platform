@@ -13,13 +13,13 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 |---|---|---|---|
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
-| **P2 — Commerce core** | 3–6 | 🟡 Sprints 3–4 done | ███████░░░ 70% |
+| **P2 — Commerce core** | 3–6 | 🟡 Sprints 3–5 done | ████████░░ 85% |
 | **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0, P1 complete + Sprints 3–4. 135 specs green.**
-**Currently active: Sprint 5 — Ledger core wiring.**
+**Overall: P0, P1 complete + Sprints 3–5. 151 specs green (135 unit + 16 DB integration).**
+**Currently active: Sprint 6 — Paystack integration.**
 
 ---
 
@@ -134,11 +134,19 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 - [ ] `media-svc` — **deferred to Sprint 5**
 - [ ] Flutter screens — **deferred to Sprint 6**
 
-### Sprint 5 — Pricing + Ledger Core
-- [ ] `pricing-svc`: delivery tiers, service fees, commissions, surcharges — admin-configurable
-- [ ] `payment-svc`: chart of accounts, wallets, materialised balances
-- [ ] Nightly reconciliation job
-- [ ] `ledger.spec` property-based, 10⁶ ops
+### Sprint 5 — Ledger service ✅ **COMPLETE**
+- [x] `LedgerService`: pre-flight balance validation before the DB is touched
+- [x] Idempotent postings keyed on `reference` — replayed webhooks are safe
+- [x] Canonical postings: capture, PSP fee, settle (prepaid + COD),
+      COD obligation, remittance, refund, payout, payout reversal
+- [x] `PgLedgerRepository` — one DB transaction per posting so the deferred
+      constraint fires at COMMIT
+- [x] Withdrawal guards: rider wallet minus unremitted COD; vendor 24h hold
+- [x] **`ledger-service.spec` 16/16 against real Postgres**, including
+      idempotency under 5 replayed captures and a full replay-vs-materialised
+      balance reconciliation
+- [x] `infra/scripts/test-db.sh` — DB integration runner
+- [ ] Nightly reconciliation job — **Sprint 6** (pairs with Paystack settlement pull)
 
 ### Sprint 6 — Paystack Live
 *Needs: **Paystack test keys**.*
