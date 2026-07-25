@@ -111,6 +111,7 @@ before(async () => {
       upstreams: {
         order: client('order'), dispatch: client('dispatch'), payment: client('payment'),
         tracking: client('tracking'), identity: client('identity'),
+        media: client('media'),
       },
     }),
   });
@@ -710,6 +711,37 @@ describe('rider BFF contract', () => {
     const r = await post(riderSvc.url, '/api/rider/legs/leg-1/events',
       { event: 'rider_deliver', photoUrl: 'https://media/pod.jpg' }, as('r1', 'rider'));
     assert.equal(r.status, 201);
+  });
+
+  test('PROOF UPLOAD: the rider gets a presigned URL for the delivery photo',
+    async () => {
+      stubRider();
+      route('POST /media/uploads', {
+        objectKey: 'proof_of_delivery/o-1/abc.jpg',
+        uploadUrl: 'https://storage.test/put/abc.jpg?sig=x',
+        publicUrl: null,
+        requiredHeaders: { 'content-type': 'image/jpeg' },
+        expiresInSeconds: 300,
+        maxBytes: 3_000_000,
+      });
+
+      const r = await post(riderSvc.url, '/api/rider/proof-uploads',
+        { orderId: 'o-1', contentType: 'image/jpeg', sizeBytes: 900_000 },
+        as('r1', 'rider'));
+      const b = await r.json() as any;
+
+      assert.equal(r.status, 201);
+      assert.ok(b.uploadUrl, 'without this a rider can never finish a delivery');
+      assert.match(b.objectKey, /^proof_of_delivery\//);
+      assert.ok(b.expiresInSeconds >= 60,
+        'a 3MB photo on 3G needs more than a moment');
+    });
+
+  test('a proof upload without an order is refused', async () => {
+    stubRider();
+    const r = await post(riderSvc.url, '/api/rider/proof-uploads',
+      { contentType: 'image/jpeg', sizeBytes: 100 }, as('r1', 'rider'));
+    assert.equal(r.status, 422);
   });
 
   test('a vendor token cannot drive rider endpoints', async () => {

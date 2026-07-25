@@ -289,18 +289,29 @@ class _ActiveJobCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // The fee is pinned right; the ref and badges share what is
+            // left and wrap if they must. A plain Row overflows on a 360dp
+            // phone as soon as a COD job adds the CASH badge — which is
+            // exactly the job where the rider most needs to read this.
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(leg.humanRef,
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700)),
+                Expanded(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: BesoncSpace.sm,
+                    runSpacing: 4,
+                    children: [
+                      Text(leg.humanRef,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      BesoncBadge(leg.service, tone: BesoncTone.brand),
+                      if (leg.isCod)
+                        const BesoncBadge('CASH', tone: BesoncTone.cash),
+                    ],
+                  ),
+                ),
                 const SizedBox(width: BesoncSpace.sm),
-                BesoncBadge(leg.service, tone: BesoncTone.brand),
-                if (leg.isCod) ...[
-                  const SizedBox(width: BesoncSpace.xs),
-                  const BesoncBadge('CASH', tone: BesoncTone.cash),
-                ],
-                const Spacer(),
                 BesoncAmount(leg.fee.display),
               ],
             ),

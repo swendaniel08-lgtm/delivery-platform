@@ -35,6 +35,7 @@ export interface RiderUpstreams {
   payment: ServiceClient;
   tracking: ServiceClient;
   identity: ServiceClient;
+  media: ServiceClient;
 }
 
 /** Events a rider may raise. Anything else is not in their vocabulary. */
@@ -212,6 +213,31 @@ export class RiderBffController {
       { bearerToken: token, ...(idempotencyKey ? { idempotencyKey } : {}) },
     );
     return { legId, event, state: res.to ?? res.state };
+  }
+
+  /**
+   * Somewhere to put a proof-of-delivery photo.
+   *
+   * The rider app cannot complete a delivery without one — order-svc
+   * rejects `rider_deliver` with no photoUrl — so this route is on the
+   * critical path of every single delivery, not a nice-to-have.
+   *
+   * Bytes go straight from the handset to object storage. Proxying a 3MB
+   * photo through here on Ghanaian mobile data would double the upload
+   * time and burn our egress for no benefit.
+   */
+  @Post('proof-uploads')
+  async proofUpload(@Body() body: any, @Headers('authorization') auth?: string) {
+    this.claims(auth);
+    const token = bearer(auth);
+    if (!body?.orderId) throw new ValidationError({ orderId: ['is required'] });
+
+    return this.up.media.post('/media/uploads', {
+      kind: 'proof_of_delivery',
+      contentType: body.contentType ?? 'image/jpeg',
+      sizeBytes: Number(body.sizeBytes ?? 0),
+      ownerRef: String(body.orderId),
+    }, { bearerToken: token });
   }
 
   /** Rider pays in collected cash. */

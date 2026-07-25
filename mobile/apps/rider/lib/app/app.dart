@@ -20,19 +20,29 @@ import 'package:besonc_models/besonc_models.dart';
 import 'package:besonc_ui/besonc_ui.dart';
 
 import '../screens/rider_home_screen.dart';
+import '../state/proof_capture.dart';
 import '../state/rider_controller.dart';
 import 'environment.dart';
+import 'io_proof.dart';
 
 class RiderDependencies {
   RiderDependencies({
     required this.api,
     required this.auth,
     required this.environment,
-  });
+    PhotoSource? camera,
+    BlobUploader? uploader,
+  })  : camera = camera ?? CameraPhotoSource(),
+        uploader = uploader ?? IoBlobUploader();
 
   final BesoncApi api;
   final AuthController auth;
   final RiderEnvironment environment;
+
+  /// Injectable so the delivery-completion path can be tested without a
+  /// camera. It is the single most important flow in this app.
+  final PhotoSource camera;
+  final BlobUploader uploader;
 
   void dispose() => auth.dispose();
 }
@@ -249,19 +259,25 @@ class _RiderRootState extends State<RiderRoot> {
   /// Held here rather than in the controller: these are properties of THIS
   /// delivery attempt on THIS device, not of the rider's server-side state.
   final _confirmations = DeliveryConfirmations();
+  ProofCaptureController? _proof;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_rider == null) {
-      _rider = RiderCoordinator(api: RiderScope.of(context).api);
+      final deps = RiderScope.of(context);
+      _rider = RiderCoordinator(api: deps.api);
       _rider!.start();
+      _proof = ProofCaptureController(
+        api: deps.api, camera: deps.camera, uploader: deps.uploader,
+      );
     }
   }
 
   @override
   void dispose() {
     _rider?.dispose();
+    _proof?.dispose();
     super.dispose();
   }
 
@@ -281,7 +297,11 @@ class _RiderRootState extends State<RiderRoot> {
         // A new leg must start with proof and cash unconfirmed, or the
         // previous delivery's confirmation would carry over and let a rider
         // complete a job without collecting anything.
-        _confirmations.syncTo(rider.controller.leg?.legId);
+        if (_confirmations.syncTo(rider.controller.leg?.legId)) {
+          // A new leg means a new doorstep. Carrying the previous photo
+          // over would attach the wrong evidence to a delivery dispute.
+          _proof?.reset();
+        }
 
         return RiderHomeScreen(
           controller: rider.controller,
@@ -289,19 +309,54 @@ class _RiderRootState extends State<RiderRoot> {
               ? (user?.displayName ?? 'Rider')
               : rider.riderName,
           walletBalance: rider.walletBalance,
-          hasProof: _confirmations.hasProof,
+          // Proof means UPLOADED, not "the button was tapped". order-svc
+          // rejects rider_deliver without a real photoUrl, so anything less
+          // would leave the rider unable to complete the job.
+          hasProof: _proof?.hasProof ?? false,
           cashConfirmed: _confirmations.cashConfirmed,
           onToggleOnline: rider.toggleOnline,
           onAcceptOffer: rider.acceptOffer,
           onDeclineOffer: rider.declineOffer,
-          onAdvance: rider.advance,
-          onTakeProof: () => setState(() => _confirmations.hasProof = true),
+          onAdvance: (event) => rider.advance(
+            event,
+            // The delivery event carries the object key the upload returned.
+            photoUrl: event == 'rider_deliver' ? _proof?.objectKey : null,
+          ),
+          onTakeProof: () => _capture(rider),
           onConfirmCash: () => setState(() => _confirmations.cashConfirmed = true),
           onRemit: () => _notYet(context, 'Cash remittance'),
           onNavigate: () => _notYet(context, 'Navigation hand-off'),
         );
       },
     );
+  }
+
+  /// Take (or re-take) the delivery photo.
+  Future<void> _capture(RiderCoordinator rider) async {
+    final orderId = rider.controller.leg?.orderId;
+    final proof = _proof;
+    if (orderId == null || proof == null) return;
+
+    final ok = await proof.capture(orderId);
+    if (!mounted) return;
+    setState(() {});
+
+    if (!ok && proof.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(proof.error!),
+          action: SnackBarAction(
+            label: 'Retry',
+            // Retries the UPLOAD, not the photo — the rider may already
+            // have walked away from the door.
+            onPressed: () async {
+              await proof.retryUpload(orderId);
+              if (mounted) setState(() {});
+            },
+          ),
+        ),
+      );
+    }
   }
 
   void _notYet(BuildContext context, String what) {

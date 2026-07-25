@@ -48,6 +48,7 @@ async function main() {
         payment: c('svc-payment', 'SVC_PAYMENT_URL', 3007),
         tracking: c('svc-tracking', 'SVC_TRACKING_URL', 3006),
         identity: c('svc-identity', 'SVC_IDENTITY_URL', 3001),
+        media: c('svc-media', 'SVC_MEDIA_URL', 3009),
       },
     }),
   });
