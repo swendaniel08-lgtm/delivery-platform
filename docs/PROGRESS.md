@@ -387,7 +387,19 @@ Paystack's sandbox — see "Verification pending" below.*
       name; GhanaPostGPS normalises "ga 123 4567" → "GA-123-4567"
 - [x] Autocomplete never fires below 3 characters (Google bills per session)
 - [x] `address_controller_test` 26/26
-- [ ] Live tracking screen
+- [x] **Tracking controller** — the socket is primary, polling is fallback,
+      because on Ghanaian mobile data the WebSocket WILL drop
+- [x] Never claims "Live" when it is not: a 50s-old fix reads "Last seen 50s
+      ago", a 4-minute-old one reads "Reconnecting to your rider…"
+- [x] The ETA counts down between updates, never goes negative, and stops
+      guessing entirely once the fix is very stale
+- [x] ETA is coarse on purpose ("About 15 minutes"), because promising a
+      figure to the second invites complaints a range does not
+- [x] No map before pickup — a rider driving to the vendor is not "your order
+      moving". Map and rider phone both drop the instant the order finishes
+- [x] Cancel button follows PDF §8 and warns about the 50% charge during
+      preparation
+- [x] `tracking_controller_test` 27/27
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Missing service schemas ✅
@@ -518,7 +530,19 @@ Paystack's sandbox — see "Verification pending" below.*
       name; GhanaPostGPS normalises "ga 123 4567" → "GA-123-4567"
 - [x] Autocomplete never fires below 3 characters (Google bills per session)
 - [x] `address_controller_test` 26/26
-- [ ] Live tracking screen
+- [x] **Tracking controller** — the socket is primary, polling is fallback,
+      because on Ghanaian mobile data the WebSocket WILL drop
+- [x] Never claims "Live" when it is not: a 50s-old fix reads "Last seen 50s
+      ago", a 4-minute-old one reads "Reconnecting to your rider…"
+- [x] The ETA counts down between updates, never goes negative, and stops
+      guessing entirely once the fix is very stale
+- [x] ETA is coarse on purpose ("About 15 minutes"), because promising a
+      figure to the second invites complaints a range does not
+- [x] No map before pickup — a rider driving to the vendor is not "your order
+      moving". Map and rider phone both drop the instant the order finishes
+- [x] Cancel button follows PDF §8 and warns about the 50% charge during
+      preparation
+- [x] `tracking_controller_test` 27/27
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Missing service schemas ✅
