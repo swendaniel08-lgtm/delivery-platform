@@ -229,6 +229,26 @@ export class TokenService {
     return next;
   }
 
+  /**
+   * Resolve the owner of a refresh token WITHOUT rotating it.
+   *
+   * The HTTP layer needs the user id before it can build a Principal, and we
+   * refuse to let the client tell us who it is — that would let anyone rotate
+   * someone else's session into a token bearing their own chosen role.
+   *
+   * A token presented after rotation still trips reuse detection here, so
+   * this cannot be used as an oracle to probe stolen tokens safely.
+   */
+  async userForRefreshToken(refreshToken: string): Promise<string> {
+    const row = await this.sessions.findByHash(this.hashRefresh(refreshToken));
+    if (!row) throw new UnauthorizedError('Invalid refresh token');
+    if (row.replacedBy !== null) {
+      await this.sessions.revokeAllForUser(row.userId, 'refresh_token_reuse');
+      throw new UnauthorizedError('Session compromised — please sign in again');
+    }
+    return row.userId;
+  }
+
   async revokeAll(userId: string, reason = 'logout_all'): Promise<number> {
     return this.sessions.revokeAllForUser(userId, reason);
   }

@@ -115,6 +115,21 @@ export async function createService(cfg: ServiceConfig): Promise<RunningService>
 
   app.useGlobalFilters(new ProblemDetailsFilter());
 
+  // Fastify rejects a request that declares `content-type: application/json`
+  // but carries an empty body (FST_ERR_CTP_EMPTY_JSON_BODY → 400, and not in
+  // our RFC-7807 shape). Dart's http package sets that header on every
+  // request, including bodyless DELETEs and POSTs, so "remove address" would
+  // fail for all three apps. Drop the header when there is demonstrably no
+  // body, which routes the request past the parser entirely.
+  app.getHttpAdapter().getInstance()
+    .addHook('onRequest', (req: any, _reply: any, done: () => void) => {
+      const len = req.headers['content-length'];
+      if ((len === undefined || len === '0') && req.headers['transfer-encoding'] === undefined) {
+        delete req.headers['content-type'];
+      }
+      done();
+    });
+
   // Fastify hook rather than Nest middleware: this must run for EVERY
   // request, including ones that never reach a controller (404s), because
   // those are exactly the responses you need a correlation id on.
