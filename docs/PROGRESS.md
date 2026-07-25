@@ -20,7 +20,26 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**1,088 specs green — 614 TS unit + 133 TS integration + 341 Dart.**
+**1,170 specs green — 684 TS unit + 133 TS integration + 353 Dart.**
+
+**Session of 2026-07-25 — the backend actually runs**
+
+Third block of the session:
+
+- **Every service is now a runnable process.** There were zero `main.ts`
+  files before; there are now ten, plus a real Fastify reverse-proxy
+  gateway. `bash infra/scripts/run-stack.sh` brings the whole backend up and
+  a live sign-in works end to end.
+- Typed configuration with production guardrails: a service exits 78
+  (`EX_CONFIG`) rather than booting half-configured. See `docs/RUNNING.md`.
+- BFF HTTP surfaces, so the paths the apps call finally resolve.
+
+| Bug found by running it | Impact |
+|---|---|
+| Gateway stripped the whole route prefix | `/api/auth/otp/request` reached identity as `/otp/request` → **every login 404'd** |
+| `/api/users` had no role restriction | Any authenticated principal could reach profile endpoints |
+| Vendor BFF emitted `totalDisplay`, app reads `itemTotalPesewas` | Vendor queue permanently empty on a real device |
+| Customer BFF emitted `isRequired`, app reads `required` | Customer could order jollof with no protein |
 
 **Session of 2026-07-25 — HTTP surfaces + all three apps runnable**
 
