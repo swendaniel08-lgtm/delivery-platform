@@ -8,25 +8,29 @@
 
 | Area | Measured | Status |
 |---|---|---|
-| Backend domain logic | 6,445 lines TS | ✅ Thorough, well-tested |
-| Tests | 4,527 lines · **389 specs green** | ✅ Real, incl. 7 end-to-end |
-| SQL migrations | 944 lines, 5 services | ✅ Constraints enforce invariants |
+| Backend + shared libs | ~61,000 lines TS | ✅ Thorough, well-tested |
+| Tests | **980 specs green** (527 TS unit + 133 TS integration + 320 Dart) | ✅ Real, incl. end-to-end |
+| SQL migrations | 9 services | ✅ Constraints enforce invariants |
 | Admin dashboard | Next.js 16, 4 routes, builds & serves | 🟡 Renders **stubbed data** |
-| **Flutter apps** | **22 files, 592 lines — the counter template** | ❌ **Not started** |
-| Shared Dart packages | 8 packages × 5 lines (stubs) | ❌ Not started |
-| HTTP surface | **1 of 11 services** (`svc-order`) | ❌ Mostly libraries |
-| Event bus | **No RabbitMQ relay exists** | ❌ Not started |
-| WebSocket transport | Logic only, no socket server | ❌ Not started |
+| **Flutter apps** | ~10,000 lines Dart | 🟡 **Customer app runs**; vendor/rider still library-only |
+| Shared Dart packages | models, api, ui, auth real; 4 still stubs | 🟡 Partly built |
+| HTTP surface | **4 of 11 services** (order, pricing, identity, catalogue) | 🟡 In progress |
+| Event bus | RabbitMQ outbox relay, verified end-to-end | ✅ Working |
+| WebSocket transport | Real `ws` server for tracking + chat | ✅ Working |
 
-**The headline:** the hard *thinking* is done and verified. The **plumbing and the entire mobile product are not built.**
+**The headline:** the hard *thinking* is done and verified, the plumbing is
+well underway, and one of the three apps now genuinely boots and talks to the
+backend. The other two apps and most repository layers remain.
 
 ---
 
 ## Remaining work
 
-### 1. Mobile — the largest single item ❌
+### 1. Mobile — still the largest single item 🟡
 
-Three Flutter apps are still `flutter create` output. Nothing has been written.
+The **customer app boots, signs in over real OTP, and renders its home screen
+from the BFF**. The vendor and rider apps have tested controllers and one
+screen each, but their `main.dart` files are still the counter template.
 
 | App | Screens needed (approx.) |
 |---|---|
@@ -36,7 +40,7 @@ Three Flutter apps are still `flutter create` output. Nothing has been written.
 
 Plus the 8 shared packages: API client, models, auth, design system, tracking map widget, chat UI, payment UI, utils.
 
-**Realistically ~55–70% of all remaining effort.**
+**Realistically ~50–60% of all remaining effort.**
 
 ### 2. Service plumbing ❌
 

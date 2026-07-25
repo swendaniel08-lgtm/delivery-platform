@@ -18,9 +18,34 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
+**Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**All 9 service schemas now exist. 693 specs green (437 TS unit + 133 TS integration + 123 Dart).**
+**980 specs green — 527 TS unit + 133 TS integration + 320 Dart.**
+
+**Session of 2026-07-25 — HTTP surfaces + a runnable customer app**
+
+- `svc-identity` now has a real HTTP surface: OTP request/verify, refresh
+  rotation, logout, token introspection, profile and address CRUD, backed by
+  both a Postgres and an in-memory repository (26 specs).
+- `svc-catalogue` went from *schema only* to a complete service: domain
+  (opening hours incl. overnight chop bars, pessimistic prep ranges, ranking
+  that mirrors `store_rank_score()`, server-side option pricing, discovery),
+  a Postgres repository whose menu query avoids the N+1, and discovery +
+  vendor/admin management routes (64 specs).
+- **The customer app runs.** `main.dart` was still the Flutter counter
+  template; it is now a real composition root wiring persistent tokens, a
+  dart:io transport, the auth gate and a home screen fed by the customer BFF.
+- New shared `besonc_auth` package (phone+OTP controller and screens) used by
+  all three apps.
+
+Real bugs these caught:
+
+| Bug | Impact if shipped |
+|---|---|
+| Fastify rejected `content-type: application/json` with an empty body | Every bodyless DELETE/POST from Dart 400'd — address deletion broken in all 3 apps |
+| `requestCode()` left the stage at `restoring` on a first-call failure | User stuck on the splash screen forever with no way out |
+| Auth screens only repainted inside `AuthGate` | Pushing them directly gave a frozen, unresponsive screen |
+| `test-mobile.sh` ran Flutter packages under `dart test` | `besonc_auth` was silently skipped — 37 specs never ran |
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
