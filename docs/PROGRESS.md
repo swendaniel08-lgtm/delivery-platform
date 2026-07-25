@@ -14,12 +14,12 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
 | **P2 — Commerce core** | 3–6 | ✅ **Complete** | ██████████ 100% |
-| **P3 — Delivery engine** | 7–10 | 🟡 Sprints 7–9 done | ████████░░ 75% |
+| **P3 — Delivery engine** | 7–10 | ✅ **Complete** | ██████████ 100% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P2 complete + Sprints 7–9. 268 specs green (229 unit + 39 integration incl. 7 end-to-end).**
-**Currently active: Sprint 10 — Tracking + COD.**
+**Overall: P0–P3 complete (Sprints 1–10). 312 specs green (253 unit + 59 integration incl. 7 end-to-end).**
+**Currently active: Sprint 11 — Messaging.**
 
 **🎉 The system now RUNS.** A real NestJS service over HTTP drives an order
 from checkout to settlement against real Postgres.
@@ -33,7 +33,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | # | Issue | Closing test | Sprint | Status |
 |---|---|---|---|---|
 | 1 | Ledger example doesn't balance | `ledger.spec` | 5 | ✅ **closed** — 7/7 green, migration committed |
-| 2 | COD booked at wrong time | `cod.spec` | 10 | [ ] |
+| 2 | COD booked at wrong time | `cod.spec` | 10 | ✅ **closed** — obligation at delivery, 20/20 |
 | 3 | Paystack call masking doesn't exist | — (design) | 11 | ✅ resolved in plan |
 | 4 | Arkesel → Hubtel SMS | `otp.spec` | 2 | ✅ **closed** — failover tested |
 | 5 | DECIMAL money | `money.spec` | 1 | ✅ **closed** — 15/15 green |
@@ -48,7 +48,7 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 | 14 | No OTP rate limiting | `otp.spec` | 2 | ✅ **closed** — 19/19 green |
 | 15 | Fraud controls | — | 15 | [ ] |
 
-**13 of 15 closed.**
+**14 of 15 closed.**
 
 ---
 
@@ -205,10 +205,22 @@ Paystack's sandbox — see "Verification pending" below.*
       9 history rows, 8+ outbox events, RFC-7807 errors with correlation IDs,
       concurrent double-accept → exactly one 201 and one 409
 
-### Sprint 10 — Tracking + COD
-- [ ] GPS ingest, Socket.IO fanout, geofence auto-transitions
-- [ ] COD obligation ledger **(closes issue 2)** — `cod.spec`
-- [ ] Remittance, balance gating, strikes
+### Sprint 10 — Tracking + COD ✅ **COMPLETE**
+- [x] **COD obligation booked at DELIVERY (closes issue 2)** — `cod.spec` 20/20
+      against real Postgres; obligation + settlement in one moment, cash
+      holding nets to zero, global drift 0 after the full cycle
+- [x] Short payment raises a dispute — never a silent write-off
+- [x] Escalation: holding → blocked (>GHS 300, cash orders only) →
+      warned (24h) → **suspended from ALL work (48h)**
+- [x] Partial remittance, over-remittance rejected
+- [x] Refusal-to-pay: 5-minute wait enforced server-side, 3 strikes revoke COD
+- [x] Float report — total outstanding, ranked collections queue
+- [x] `svc-tracking`: ping validation rejecting **mock locations**,
+      implausible jumps, stale/inaccurate fixes, out-of-Ghana positions
+- [x] Geofencing: enter/exit edges only, auto-emits arrival events
+- [x] `TrackingHub`: room-per-order, 3 s broadcast throttle, no cross-order leakage
+- [x] Subscribe-time authorisation — only the customer/vendor on that order
+- [x] `tracking.spec` 24/24
 
 ### Sprint 10 — COD
 - [ ] Obligation ledger at delivery **(closes issue 2)** — `cod.spec`
