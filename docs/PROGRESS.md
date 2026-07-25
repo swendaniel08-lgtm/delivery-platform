@@ -18,7 +18,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 | **P4 — Completion** | 11–14 | ✅ **Complete** | ██████████ 100% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0–P4 complete + relay, gateway, all 4 BFFs, media-svc. 506 specs green (417 unit + 89 integration incl. 16 end-to-end).**
+**Overall: P0–P4 complete. Plumbing done. 526 specs green (437 unit + 89 integration incl. 16 end-to-end).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -312,8 +312,17 @@ Paystack's sandbox — see "Verification pending" below.*
       windows by sensitivity, image variants. `admin-media.spec` 33/33
 - [x] Money formatting unified in `libs/money` — the dashboard and the API
       had drifted (`12400.00` vs `12,400.00`); one formatter now serves both
-- [ ] HTTP wiring for the remaining services
-- [ ] WebSocket server for tracking/chat
+- [ ] HTTP wiring for the remaining services (last plumbing item)
+- [x] **WebSocket server** — real `ws` server, tested over real sockets
+      - authenticate on connect (4401 close), authorise per room on subscribe
+      - **found a real bug: riders could not enter their own order's room**
+        (`canWatchOrder` had no rider case, and `wsRoleOf` collapsed rider
+        into customer) — fixed in the model, not the test
+      - positions never leak across rooms; disconnect removes the subscription
+      - chat persisted for disputes; admins observe but cannot post as a party
+      - malformed JSON, unknown types and flooding all handled without
+        dropping the connection; heartbeat reaps half-open sockets
+      - `ws.spec` 20/20
 - [ ] `media-svc`
 
 ### Sprint 16 — Hardening
@@ -353,8 +362,17 @@ Paystack's sandbox — see "Verification pending" below.*
       windows by sensitivity, image variants. `admin-media.spec` 33/33
 - [x] Money formatting unified in `libs/money` — the dashboard and the API
       had drifted (`12400.00` vs `12,400.00`); one formatter now serves both
-- [ ] HTTP wiring for the remaining services
-- [ ] WebSocket server for tracking/chat
+- [ ] HTTP wiring for the remaining services (last plumbing item)
+- [x] **WebSocket server** — real `ws` server, tested over real sockets
+      - authenticate on connect (4401 close), authorise per room on subscribe
+      - **found a real bug: riders could not enter their own order's room**
+        (`canWatchOrder` had no rider case, and `wsRoleOf` collapsed rider
+        into customer) — fixed in the model, not the test
+      - positions never leak across rooms; disconnect removes the subscription
+      - chat persisted for disputes; admins observe but cannot post as a party
+      - malformed JSON, unknown types and flooding all handled without
+        dropping the connection; heartbeat reaps half-open sockets
+      - `ws.spec` 20/20
 - [ ] `media-svc`
 
 ### Sprint 16 — Hardening

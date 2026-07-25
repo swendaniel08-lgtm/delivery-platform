@@ -142,7 +142,7 @@ export function processPing(
 export interface Subscriber {
   /** Who is watching. */
   principalId: string;
-  role: 'customer' | 'vendor' | 'admin';
+  role: 'customer' | 'vendor' | 'rider' | 'admin';
   send(payload: unknown): void;
 }
 
@@ -235,6 +235,13 @@ export function canWatchOrder(
     return principalId === order.vendorOwnerId
       ? { allowed: true }
       : { allowed: false, reason: 'not your order' };
+  }
+  // The rider assigned to the order needs the room too — it carries the
+  // chat with the customer they are currently delivering to.
+  if (role === 'rider') {
+    return principalId === order.riderId
+      ? { allowed: true }
+      : { allowed: false, reason: 'not your delivery' };
   }
   return { allowed: false, reason: 'unknown role' };
 }
