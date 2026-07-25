@@ -20,7 +20,7 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE. 545 specs green (437 unit + 108 integration incl. 35 end-to-end).**
 
-**Mobile: home, vendor detail, item sheet and cart. 645 specs green (437 TS unit + 108 TS integration + 100 Dart).**
+**Mobile: home, vendor, item sheet, cart and checkout. 668 specs green (437 TS unit + 108 TS integration + 123 Dart).**
 
 **Services now genuinely communicate** — an event written by order-svc is
 received by another service over real RabbitMQ.
@@ -372,7 +372,13 @@ Paystack's sandbox — see "Verification pending" below.*
       are inert, running total updates live, single-choice options replace
       rather than ignore the tap, and a disabled Add button always shows the
       REASON. `vendor_screen_test` 15/15
-- [ ] Address picker, checkout, live tracking
+- [x] **Checkout controller** — the server's quote is used verbatim, never
+      recomputed on device; changing address invalidates the stale quote;
+      COD and wallet options disable themselves WITH the server's reason;
+      the idempotency key is generated once and reused across retries so a
+      timeout cannot create two orders; MoMo waits for handset approval
+      rather than celebrating on HTTP 200. `checkout_controller_test` 23/23
+- [ ] Address picker, live tracking
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Hardening
@@ -470,7 +476,13 @@ Paystack's sandbox — see "Verification pending" below.*
       are inert, running total updates live, single-choice options replace
       rather than ignore the tap, and a disabled Add button always shows the
       REASON. `vendor_screen_test` 15/15
-- [ ] Address picker, checkout, live tracking
+- [x] **Checkout controller** — the server's quote is used verbatim, never
+      recomputed on device; changing address invalidates the stale quote;
+      COD and wallet options disable themselves WITH the server's reason;
+      the idempotency key is generated once and reused across retries so a
+      timeout cannot create two orders; MoMo waits for handset approval
+      rather than celebrating on HTTP 200. `checkout_controller_test` 23/23
+- [ ] Address picker, live tracking
 - [ ] Vendor + rider app screens
 
 ### Sprint 17 — Hardening
