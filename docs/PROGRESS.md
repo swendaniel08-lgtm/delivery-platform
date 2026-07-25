@@ -13,13 +13,13 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 |---|---|---|---|
 | **P0 — Planning & environment** | — | ✅ **Complete** | ██████████ 100% |
 | **P1 — Foundation** | 1–2 | ✅ **Complete** | ██████████ 100% |
-| **P2 — Commerce core** | 3–6 | 🟡 Sprint 3 done | █████░░░░░ 50% |
+| **P2 — Commerce core** | 3–6 | 🟡 Sprints 3–4 done | ███████░░░ 70% |
 | **P3 — Delivery engine** | 7–10 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P4 — Completion** | 11–14 | ⬜ Not started | ░░░░░░░░░░ 0% |
 | **P5 — Launch** | 15–18 | ⬜ Not started | ░░░░░░░░░░ 0% |
 
-**Overall: P0, P1 complete + Sprint 3. 100 specs green.**
-**Currently active: Sprint 4 — Cart & order draft.**
+**Overall: P0, P1 complete + Sprints 3–4. 135 specs green.**
+**Currently active: Sprint 5 — Ledger core wiring.**
 
 ---
 
@@ -119,12 +119,20 @@ The 15 spec issues and where each dies. This is the real measure of progress.
 - [x] Vendor ranking function (PDF §10 weights), Accra-timezone opening hours
 - [x] Live-verified: pharmacy licence gate, addon selection ranges, price floors
 
-### Sprint 4 — Cart & catalogue API
-- [ ] NestJS runtime + gateway + BFF skeletons
-- [ ] JWT issuance + refresh rotation (carried from Sprint 2)
-- [ ] Cart with one-vendor rule
-- [ ] `media-svc`: upload, compression, variants
-- [ ] Flutter: browse, search, vendor page, address picker
+### Sprint 4 — Auth tokens & cart ✅ **COMPLETE**
+- [x] `TokenService`: HS256 JWT, 15-min access, 30-day refresh
+- [x] **Refresh rotation with reuse detection** — replaying a spent token
+      revokes the entire session family
+- [x] Hardened against alg=none, payload tampering, wrong-secret signing
+- [x] `token.spec` 14/14
+- [x] `CartService`: server-side re-pricing (client never sends prices)
+- [x] One-vendor rule (PDF §13) with the "start a new cart?" message
+- [x] Addon min/max/required rules, variants exactly-one, cross-item guard
+- [x] Checkout gate: closed vendor, empty cart, prescription upload
+- [x] `cart.spec` 21/21 — reproduces the PDF §20 walkthrough cart (GHS 70)
+- [ ] NestJS HTTP wiring + gateway/BFFs — **deferred to Sprint 5**
+- [ ] `media-svc` — **deferred to Sprint 5**
+- [ ] Flutter screens — **deferred to Sprint 6**
 
 ### Sprint 5 — Pricing + Ledger Core
 - [ ] `pricing-svc`: delivery tiers, service fees, commissions, surcharges — admin-configurable
