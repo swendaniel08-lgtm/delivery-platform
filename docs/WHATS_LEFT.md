@@ -9,13 +9,14 @@
 | Area | Measured | Status |
 |---|---|---|
 | Backend + shared libs | ~61,000 lines TS | ✅ Thorough, well-tested |
-| Tests | **1,170 specs green** (684 TS unit + 133 TS integration + 353 Dart) | ✅ Real, incl. end-to-end |
+| Tests | **1,199 specs green** (713 TS unit + 133 TS integration + 353 Dart) | ✅ Real, incl. end-to-end |
 | SQL migrations | 9 services | ✅ Constraints enforce invariants |
 | Admin dashboard | Next.js 16, 4 routes, builds & serves | 🟡 Renders **stubbed data** |
 | **Flutter apps** | ~11,000 lines Dart | 🟡 **All three boot, sign in and call their BFF**; most screens still to build |
 | Shared Dart packages | models, api, ui, auth real; 4 still stubs | 🟡 Partly built |
-| HTTP surface | **7 services + 3 BFFs + gateway** | ✅ Reachable |
-| **Runnable processes** | **10 services boot; OTP→JWT→BFF verified end to end** | ✅ `run-stack.sh` |
+| HTTP surface | **all 10 services + 4 BFFs + gateway** | ✅ Complete |
+| **Runnable processes** | **15/15 boot healthy on real Postgres** | ✅ `make run` |
+| **Deployment** | Dockerfile + compose; full flow verified in containers | ✅ `make up` |
 | Credential wiring | Typed config, production guardrails, `.env` | ✅ Ready for your keys |
 | Event bus | RabbitMQ outbox relay, verified end-to-end | ✅ Working |
 | WebSocket transport | Real `ws` server for tracking + chat | ✅ Working |

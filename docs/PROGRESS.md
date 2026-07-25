@@ -20,7 +20,30 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**1,170 specs green — 684 TS unit + 133 TS integration + 353 Dart.**
+**1,199 specs green — 713 TS unit + 133 TS integration + 353 Dart.**
+
+**Session of 2026-07-25 — the platform is deployable**
+
+Fourth block:
+
+- **All 15 services now have entrypoints and start healthy.** order,
+  messaging, media, admin and bff-admin were the last five.
+- **order-svc runs**, so orders can finally be placed. Full lifecycle
+  verified against Postgres, settling to the canonical 5950/800/1400.
+- Durable timer worker (`FOR UPDATE SKIP LOCKED`) — vendor accept deadlines
+  now survive a restart instead of dying with the process.
+- **Docker: one image, fifteen services**, plus a compose stack and a
+  Makefile. Sign-in and order placement verified with everything in
+  containers.
+
+| Bug found by running it | Impact |
+|---|---|
+| Leg transitions 500'd on a pg enum/text cast | No rider could advance a delivery |
+| Invented order event names (`rider_at_vendor` vs `rider_arrive_vendor`) | Leg advanced, order silently did not — tracking freezes mid-delivery |
+| One shared `DATABASE_URL` for every service | identity looked for `users` in the orders schema |
+| `npm ci --omit=optional` dropped `@esbuild/linux-x64` | Every container died at startup |
+| `tsconfig.json` missing from the image | Decorators disabled; Nest refused to boot |
+| Compose reads `${VAR}` from a `.env` beside the compose file | `NODE_ENV` stayed production; guardrails fired and looked like a bug |
 
 **Session of 2026-07-25 — the backend actually runs**
 
