@@ -16,7 +16,7 @@ import {
   createService, installShutdownHandlers, portFor,
 } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  smsConfigFrom, jwtFrom, infraFrom, describeConfig, ConfigError,
+  smsConfigFrom, jwtFrom, infraFrom, optional, describeConfig, ConfigError,
 } from '../../../libs/platform/src/config/env.ts';
 import {
   HubtelSmsProvider, ArkeselSmsProvider, FailoverSmsProvider, InMemorySmsProvider,
@@ -85,6 +85,27 @@ async function main() {
       + 'Do not run more than one replica like this.');
   }
 
+  // Vendor logins need the store id stamped into the token. Asked of
+  // catalogue-svc over HTTP with a SHORT timeout: a slow catalogue must
+  // delay nobody's login, and a vendor with no vendorId simply lands on
+  // the onboarding screen instead of the dashboard.
+  const catalogueUrl = optional('SVC_CATALOGUE_URL', 'http://127.0.0.1:3002');
+  const storeLookup = {
+    async storeIdFor(ownerId: string): Promise<string | null> {
+      try {
+        const res = await fetch(
+          `${catalogueUrl}/catalogue/stores?ownerId=${encodeURIComponent(ownerId)}`,
+          { signal: AbortSignal.timeout(1_500) },
+        );
+        if (!res.ok) return null;
+        const body = await res.json() as { stores?: Array<{ id: string }> };
+        return body.stores?.[0]?.id ?? null;
+      } catch {
+        return null;
+      }
+    },
+  };
+
   const svc = await createService({
     name: NAME,
     port: portFor(NAME),
@@ -97,6 +118,7 @@ async function main() {
       counters,
       accessSecret: jwt.accessSecret,
       refreshSecret: jwt.refreshSecret,
+      storeLookup,
       ...(pool ? { users: new PgUserRepository(pool), sessions: new PgSessionStore(pool) } : {}),
       // Never expose OTP codes over the API unless explicitly asked for in
       // a non-production environment.

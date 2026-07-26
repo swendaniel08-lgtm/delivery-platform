@@ -102,6 +102,14 @@ export class DiscoveryController {
   /** The home screen. `lat`/`lng` are required — everything is proximity-first. */
   @Get('stores')
   async stores(@Query() q: any) {
+    // One exception to the proximity rule: identity-svc asks "which store
+    // does this owner have?" at login, to stamp vendorId into the token.
+    // It has no coordinates and wants no ranking.
+    if (q.ownerId) {
+      const owned = await this.repo.listStores({ ownerId: String(q.ownerId) });
+      return { stores: owned.map((s) => ({ id: s.id, name: s.name, status: s.status })) };
+    }
+
     const lat = Number(q.lat);
     const lng = Number(q.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -136,7 +144,14 @@ export class DiscoveryController {
   async store(@Param('id') id: string) {
     const s = await this.repo.getStore(id);
     if (s.status !== 'approved' || !s.isActive) throw new NotFoundError('Store');
-    const items = await this.repo.listItems(id);
+
+    // Unavailable items are HIDDEN here, and only here. The vendor's own
+    // /manage/stores/:id/items still returns them, because a vendor must be
+    // able to switch the tilapia back on when the fish arrives.
+    //
+    // Without this filter a customer can add a sold-out dish to their cart
+    // and only discover it at checkout, after choosing a payment method.
+    const items = (await this.repo.listItems(id)).filter((i) => i.isAvailable);
     return { store: storeDto(s), items: items.map(itemDto) };
   }
 

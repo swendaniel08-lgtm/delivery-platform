@@ -67,12 +67,18 @@ const uuid = () => {
 
 export class InMemoryCatalogueRepository implements CatalogueRepository {
   stores = new Map<string, StoreSummary>();
+  /** ownerId per store — StoreSummary does not carry it. */
+  owners = new Map<string, string>();
   items = new Map<string, CatalogueItem>();
   storeNames = new Map<string, string>();
 
   async listStores(filter: { service?: ServiceType; ownerId?: string } = {}) {
     return [...this.stores.values()]
-      .filter((s) => !filter.service || s.serviceType === filter.service);
+      .filter((s) => !filter.service || s.serviceType === filter.service)
+      // Was silently ignored here while the Postgres repository honoured
+      // it — the two implementations of one interface must agree, or a
+      // test that passes in memory fails in production.
+      .filter((s) => !filter.ownerId || this.owners.get(s.id) === filter.ownerId);
   }
   async getStore(id: string) {
     const s = this.stores.get(id);
@@ -97,6 +103,7 @@ export class InMemoryCatalogueRepository implements CatalogueRepository {
     };
     this.stores.set(s.id, s);
     this.storeNames.set(s.id, s.name);
+    this.owners.set(s.id, input.ownerId);
     return { ...s };
   }
   async setStoreStatus(id: string, status: StoreStatus) {

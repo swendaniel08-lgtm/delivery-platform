@@ -131,6 +131,26 @@ describe('discovery', () => {
     assert.equal(b.items[0].addonGroups[0].items[1].isAvailable, false);
   });
 
+  test('A SOLD-OUT ITEM IS HIDDEN FROM THE PUBLIC MENU', async () => {
+    const hidden = await repo.createItem({
+      storeId: ownerStore, name: 'Grilled Tilapia', basePricePesewas: 6000n,
+    });
+    await repo.setItemAvailability(hidden.id, false);
+
+    const page = await (await get(`/catalogue/stores/${ownerStore}`)).json() as any;
+    const names = page.items.map((i: any) => i.name);
+
+    assert.ok(!names.includes('Grilled Tilapia'),
+      'a customer could otherwise cart a sold-out dish and only find out '
+      + 'after choosing how to pay');
+
+    // …but the vendor still sees it, or they could never switch it back on.
+    const h = bearer(token('u-owner', 'vendor_owner', ownerStore));
+    const mine = await (await get(`/catalogue/manage/stores/${ownerStore}/items`, h))
+      .json() as any;
+    assert.ok(mine.items.some((i: any) => i.name === 'Grilled Tilapia'));
+  });
+
   test('an unapproved store 404s on the public route', async () => {
     const s = await repo.createStore({
       ownerId: 'u-x', serviceType: 'food', name: 'Not Yet', latitude: 5.6, longitude: -0.18,
@@ -213,7 +233,9 @@ describe('vendor management', () => {
     const r = await get(`/catalogue/manage/stores/${ownerStore}/items`, h);
     const b = await r.json() as any;
     assert.equal(r.status, 200);
-    assert.equal(b.items.length, 1);
+    // Assert on CONTENT, not a count: an exact length couples this test to
+    // every other test's fixtures and breaks for unrelated reasons.
+    assert.ok(b.items.some((i: any) => i.name === 'Jollof Rice'));
   });
 
   test("a vendor cannot read another vendor's menu", async () => {

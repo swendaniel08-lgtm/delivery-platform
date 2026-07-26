@@ -39,6 +39,7 @@ const PORTS = {
   order: 4803,
   pricing: 4804,
   bffCustomer: 4901,
+  bffVendor: 4902,
   gateway: 4900,
 };
 
@@ -74,8 +75,15 @@ const SERVICES: ServiceSpec[] = [
     extra: { SVC_PRICING_PORT: String(PORTS.pricing) } },
   { name: 'bff-customer', main: 'apps/bff-customer/src/main.ts', port: PORTS.bffCustomer,
     extra: { BFF_CUSTOMER_PORT: String(PORTS.bffCustomer) } },
+  { name: 'bff-vendor', main: 'apps/bff-vendor/src/main.ts', port: PORTS.bffVendor,
+    extra: { BFF_VENDOR_PORT: String(PORTS.bffVendor) } },
   { name: 'gateway', main: 'apps/gateway/src/main.ts', port: PORTS.gateway,
-    extra: { PORT: String(PORTS.gateway) } },
+    extra: {
+      PORT: String(PORTS.gateway),
+      // Dozens of sign-ins from one IP would trip the 30/minute anonymous
+      // ceiling. Ignored when NODE_ENV=production.
+      RATE_LIMIT_SCALE: '100',
+    } },
 ];
 
 function launch(svc: ServiceSpec): ChildProcess {
@@ -99,6 +107,7 @@ function launch(svc: ServiceSpec): ChildProcess {
       SVC_ORDER_URL: `http://127.0.0.1:${PORTS.order}`,
       SVC_PRICING_URL: `http://127.0.0.1:${PORTS.pricing}`,
       BFF_CUSTOMER_URL: `http://127.0.0.1:${PORTS.bffCustomer}`,
+      BFF_VENDOR_URL: `http://127.0.0.1:${PORTS.bffVendor}`,
       ...svc.extra,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -133,6 +142,7 @@ async function waitForHealth(port: number, name: string, timeoutMs = 90_000) {
 let admin: pg.Pool;
 let storeId = '';
 let itemId = '';
+let vendorOwnerId = '';
 
 before(async () => {
   admin = new pg.Pool({ connectionString: dsn('postgres') });
@@ -164,14 +174,15 @@ before(async () => {
       ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
         .map((d) => [d, { open: '00:00', close: '23:59' }]),
     ));
-    const s = await cat.query<{ id: string }>(
+    const s = await cat.query<{ id: string; owner_id: string }>(
       `INSERT INTO stores (owner_id, service_type, name, latitude, longitude,
                            phone, status, operating_hours)
        VALUES (gen_random_uuid(), 'food', 'Auntie Muni Waakye',
                5.6037, -0.1870, '+233244000001', 'approved', $1::jsonb)
-       RETURNING id`, [alwaysOpen],
+       RETURNING id, owner_id`, [alwaysOpen],
     );
     storeId = s.rows[0]!.id;
+    vendorOwnerId = s.rows[0]!.owner_id;
 
     const i = await cat.query<{ id: string }>(
       `INSERT INTO items (store_id, name, base_price_pesewas, is_available)
@@ -591,6 +602,188 @@ describe('the order lifecycle reaches settlement', () => {
     assert.ok(res.status >= 400,
       'a delivered order that was never cooked would settle money to a vendor '
       + 'who did nothing');
+  });
+});
+
+
+describe('the vendor side', () => {
+  /** Sign in as a vendor whose account OWNS the seeded store. */
+  async function vendorToken(phone: string) {
+    // Point the seeded store at the account this login will create, so the
+    // store lookup at login has something to find.
+    const req = await api('/api/auth/otp/request', {
+      method: 'POST', body: JSON.stringify({ phone }),
+    });
+    const otp = await req.json() as any;
+
+    // Create the account first WITHOUT a store, then attach and re-login —
+    // exactly the real onboarding order (sign up, register a store).
+    const first = await api('/api/auth/otp/verify', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code: otp.debugCode, role: 'vendor_owner' }),
+    });
+    const body = await first.json() as any;
+    assert.equal(first.status, 201, JSON.stringify(body));
+
+    const cat = new pg.Pool({ connectionString: dsn('catalogue') });
+    try {
+      await cat.query('UPDATE stores SET owner_id = $1 WHERE id = $2',
+        [body.user.id, storeId]);
+    } finally {
+      await cat.end();
+    }
+
+    // Second login now stamps vendorId into the token.
+    const req2 = await api('/api/auth/otp/request', {
+      method: 'POST', body: JSON.stringify({ phone }),
+    });
+    const otp2 = await req2.json() as any;
+    const second = await api('/api/auth/otp/verify', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code: otp2.debugCode, role: 'vendor_owner' }),
+    });
+    const b2 = await second.json() as any;
+    assert.equal(second.status, 201, JSON.stringify(b2));
+    return b2.tokens.accessToken as string;
+  }
+
+  test('THE TOKEN CARRIES vendorId', async () => {
+    // The bug: TokenService supported vendorId and the login never set it,
+    // so every vendor-BFF route answered "No store is linked to this
+    // account" and the vendor app was unusable.
+    const token = await vendorToken('0244200001');
+    const claims = JSON.parse(
+      Buffer.from(token.split('.')[1]!, 'base64url').toString(),
+    );
+    assert.equal(claims.vendorId, storeId,
+      'without this the vendor app cannot load a single screen');
+    assert.equal(claims.role, 'vendor_owner');
+  });
+
+  test('the vendor sees their queue', async () => {
+    const token = await vendorToken('0244200002');
+    const res = await api('/api/vendor/queue', { headers: auth(token) });
+    const body = await res.json() as any;
+
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.equal(body.storeName, 'Auntie Muni Waakye');
+    assert.ok(Array.isArray(body.orders));
+  });
+
+  test('a real order appears in the vendor queue', async () => {
+    const vToken = await vendorToken('0244200003');
+
+    // A customer places one.
+    const c = await signIn('0244200100');
+    await api('/api/users/me/addresses', {
+      method: 'POST', headers: auth(c.token),
+      body: JSON.stringify({ latitude: 5.5560, longitude: -0.1821, label: 'Home' }),
+    });
+    const placed = await (await api('/api/customer/checkout', {
+      method: 'POST',
+      headers: { ...auth(c.token), 'idempotency-key': 'e2e-vendor-queue' },
+      body: JSON.stringify({
+        storeId, lines: [{ itemId, quantity: 1 }], paymentIntent: 'prepaid',
+      }),
+    })).json() as any;
+
+    // Confirm payment so it leaves pending_payment and reaches the kitchen.
+    await fetch(`http://127.0.0.1:${PORTS.order}/orders/${placed.orderId}/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event: 'payment_confirmed' }),
+    });
+
+    const queue = await (await api('/api/vendor/queue', { headers: auth(vToken) }))
+      .json() as any;
+    const mine = queue.orders.find((o: any) => o.id === placed.orderId);
+
+    assert.ok(mine, 'the order a customer just placed must reach the kitchen');
+    // The shape VendorOrder.fromJson reads — a rename here empties the app.
+    for (const k of ['id', 'humanRef', 'state', 'lines', 'itemTotalPesewas',
+      'vendorAmountPesewas', 'placedAt', 'isCod']) {
+      assert.ok(k in mine, `vendor order is missing "${k}"`);
+    }
+    assert.ok(!Number.isNaN(Date.parse(mine.placedAt)),
+      'placedAt drives the accept countdown on the device');
+  });
+
+  test('the vendor can accept it, and the state really moves', async () => {
+    const vToken = await vendorToken('0244200004');
+    const c = await signIn('0244200101');
+    await api('/api/users/me/addresses', {
+      method: 'POST', headers: auth(c.token),
+      body: JSON.stringify({ latitude: 5.5560, longitude: -0.1821, label: 'Home' }),
+    });
+    const placed = await (await api('/api/customer/checkout', {
+      method: 'POST',
+      headers: { ...auth(c.token), 'idempotency-key': 'e2e-vendor-accept' },
+      body: JSON.stringify({
+        storeId, lines: [{ itemId, quantity: 1 }], paymentIntent: 'prepaid',
+      }),
+    })).json() as any;
+    await fetch(`http://127.0.0.1:${PORTS.order}/orders/${placed.orderId}/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event: 'payment_confirmed' }),
+    });
+
+    const res = await api(`/api/vendor/orders/${placed.orderId}/accept`, {
+      method: 'POST', headers: auth(vToken), body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 201, JSON.stringify(await res.json()));
+
+    const op = new pg.Pool({ connectionString: dsn('orders') });
+    try {
+      const r = await op.query('SELECT state FROM orders WHERE id = $1',
+        [placed.orderId]);
+      assert.equal(r.rows[0]!.state, 'vendor_accepted');
+    } finally {
+      await op.end();
+    }
+  });
+
+  test('the menu includes items the vendor switched off', async () => {
+    const token = await vendorToken('0244200005');
+    const res = await api('/api/vendor/menu', { headers: auth(token) });
+    const body = await res.json() as any;
+
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.ok(body.items.some((i: any) => i.name === 'Jollof Rice'));
+  });
+
+  test('MARKING A DISH SOLD OUT REMOVES IT FROM THE CUSTOMER MENU', async () => {
+    const vToken = await vendorToken('0244200006');
+
+    const off = await api(`/api/vendor/menu/${itemId}/availability`, {
+      method: 'PATCH', headers: auth(vToken),
+      body: JSON.stringify({ isAvailable: false }),
+    });
+    assert.equal(off.status, 200, JSON.stringify(await off.json()));
+
+    try {
+      const c = await signIn('0244200102');
+      const page = await (await api(`/api/customer/stores/${storeId}`,
+        { headers: auth(c.token) })).json() as any;
+      const names = page.categories[0].items.map((i: any) => i.name);
+      assert.ok(!names.includes('Jollof Rice'),
+        'a sold-out dish must stop being orderable immediately');
+    } finally {
+      // Put it back, or every later test in this file has no menu.
+      await api(`/api/vendor/menu/${itemId}/availability`, {
+        method: 'PATCH', headers: auth(vToken),
+        body: JSON.stringify({ isAvailable: true }),
+      });
+    }
+  });
+
+  test('a vendor cannot act on an order from another store', async () => {
+    const vToken = await vendorToken('0244200007');
+    const res = await api('/api/vendor/orders/'
+      + '00000000-0000-4000-8000-000000000123/accept', {
+      method: 'POST', headers: auth(vToken), body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 404,
+      'probing ids must not confirm another store\'s orders exist');
   });
 });
 

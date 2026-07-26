@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 
 import {
-  Gateway, InMemoryRateLimitStore, SECURITY_HEADERS, corsHeaders,
+  Gateway, InMemoryRateLimitStore, SECURITY_HEADERS, corsHeaders, RATE_TIERS,
   type RouteRule,
 } from './gateway.ts';
 import { TokenService, InMemorySessionStore } from '../../svc-identity/src/token/token-service.ts';
@@ -73,6 +73,19 @@ async function main() {
     // so it needs no session storage.
     new InMemorySessionStore(),
   );
+
+  // Integration suites drive dozens of sign-ins from ONE IP and trip the
+  // 30/minute anonymous ceiling. That ceiling is the brute-force defence
+  // and must not be weakened in production, so it is scaled by config and
+  // the multiplier is ignored when NODE_ENV=production.
+  const limitScale = isProduction() ? 1 : numberFrom('RATE_LIMIT_SCALE', 1);
+  if (limitScale !== 1) {
+    console.warn(`[${NAME}] rate limits scaled x${limitScale} — never do this `
+      + 'outside a test environment');
+    for (const tier of Object.values(RATE_TIERS)) {
+      tier.max = Math.round(tier.max * limitScale);
+    }
+  }
 
   const gateway = new Gateway(tokens, new InMemoryRateLimitStore(), { trustProxy, routes });
 

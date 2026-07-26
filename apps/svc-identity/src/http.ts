@@ -38,7 +38,24 @@ import {
   type UserRepository, type UserRow, type AddressRow,
 } from './repository.ts';
 
+/**
+ * Resolves the store a vendor owns.
+ *
+ * The vendor BFF reads `vendorId` from the access token and refuses every
+ * request without it, so a login that does not stamp it locks the vendor
+ * out entirely with "No store is linked to this account".
+ *
+ * A port rather than a call into catalogue-svc: identity must be able to
+ * mint a token even when the catalogue is down, and a vendor whose store
+ * lookup failed is better served by a token with no vendorId (they see the
+ * onboarding screen) than by no token at all.
+ */
+export interface StoreLookup {
+  storeIdFor(ownerId: string): Promise<string | null>;
+}
+
 export const OTP_SERVICE = Symbol('OTP_SERVICE');
+export const STORE_LOOKUP = Symbol('STORE_LOOKUP');
 export const TOKEN_SERVICE = Symbol('TOKEN_SERVICE');
 export const USER_REPOSITORY = Symbol('USER_REPOSITORY');
 
@@ -103,6 +120,7 @@ export class AuthController {
     @Inject(OTP_SERVICE) private readonly otp: OtpService,
     @Inject(TOKEN_SERVICE) private readonly tokens: TokenService,
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
+    @Inject(STORE_LOOKUP) private readonly stores: StoreLookup,
   ) {}
 
   @Post('otp/request')
@@ -147,6 +165,14 @@ export class AuthController {
     }
 
     const principal: Principal = { userId: user.id, role: user.role };
+
+    // Vendors carry their store id in the token; every vendor-BFF route
+    // scopes on it. Failing the lookup must not fail the login.
+    if (user.role === 'vendor_owner' || user.role === 'vendor_staff') {
+      const storeId = await this.stores.storeIdFor(user.id).catch(() => null);
+      if (storeId) principal.vendorId = storeId;
+    }
+
     const pair = await this.tokens.issue(principal, body.deviceId ?? deviceHeader);
 
     return {
@@ -315,6 +341,7 @@ export interface IdentityDeps {
    * correct in production and must not be weakened there.
    */
   otpLimits?: OtpLimits;
+  storeLookup?: StoreLookup;
 }
 
 @Module({})
@@ -346,6 +373,12 @@ export class IdentityHttpModule {
         { provide: OTP_SERVICE, useValue: otp },
         { provide: TOKEN_SERVICE, useValue: tokens },
         { provide: USER_REPOSITORY, useValue: users },
+        {
+          provide: STORE_LOOKUP,
+          // Without a lookup nobody gets a vendorId, which is correct for a
+          // customer-only deployment and obvious in the vendor app.
+          useValue: deps.storeLookup ?? { storeIdFor: async () => null },
+        },
       ],
     };
   }
