@@ -31,11 +31,13 @@ import {
 import { InMemoryLedgerRepository } from './memory-ledger-repository.ts';
 import { PgLedgerRepository } from './pg-ledger-repository.ts';
 import { PaystackWebhookProcessor } from './paystack/webhook.ts';
+import type { PaystackClient } from './paystack/client.ts';
 
 export const LEDGER = Symbol('LEDGER');
 export const WEBHOOK_PROCESSOR = Symbol('WEBHOOK_PROCESSOR');
 export const COD_STATE = Symbol('COD_STATE');
 export const VERIFY_TOKEN = Symbol('PAYMENT_VERIFY_TOKEN');
+export const PAYSTACK_CLIENT = Symbol('PAYSTACK_CLIENT');
 
 export interface Claims { sub: string; role: string }
 export type VerifyToken = (token: string) => Claims;
@@ -276,7 +278,74 @@ export class LedgerController {
   constructor(
     @Inject(LEDGER) private readonly ledger: LedgerService,
     @Inject(VERIFY_TOKEN) private readonly verify: VerifyToken,
+    @Inject(PAYSTACK_CLIENT) private readonly paystack: PaystackClient | null,
   ) {}
+
+  /**
+   * Start a mobile-money charge.
+   *
+   * Returns as soon as Paystack accepts the request. It is NOT a
+   * confirmation: the customer still has to approve a prompt on their
+   * handset, and only the signed webhook moves money in our ledger
+   * (issue #6). Anything that treats this response as "paid" is wrong.
+   */
+  @Post('charges/momo')
+  async chargeMomo(@Body() body: any, @Headers('authorization') auth?: string) {
+    this.service(auth);
+    requireFields(body, ['orderId', 'amountPesewas', 'phone', 'email']);
+
+    if (!this.paystack) {
+      throw new ConflictError(
+        'Payments are not configured on this deployment',
+      );
+    }
+
+    const result = await this.paystack.chargeMobileMoney({
+      orderId: String(body.orderId),
+      // The attempt number is part of the reference, so a customer who
+      // fails once and retries gets a NEW reference rather than colliding
+      // with the dead charge.
+      attempt: Number(body.attempt ?? 1),
+      amount: pesewas(body.amountPesewas, 'amountPesewas'),
+      email: String(body.email),
+      phone: String(body.phone),
+    });
+
+    return {
+      reference: result.reference,
+      status: result.status,
+      // Paystack sometimes returns the exact wording of the USSD prompt.
+      // Showing the customer the same words their handset will display
+      // removes most "did it work?" support calls.
+      ...(result.displayText ? { displayText: result.displayText } : {}),
+      // Stated in the response so no caller can mistake this for success.
+      awaitingApproval: result.status === 'pending',
+    };
+  }
+
+  /**
+   * Ask Paystack directly what happened to a charge.
+   *
+   * A fallback for when a webhook is delayed or lost. The ledger is still
+   * only written by the webhook path; this is for showing the customer an
+   * honest status while they wait.
+   */
+  @Get('charges/:reference')
+  async chargeStatus(
+    @Param('reference') reference: string,
+    @Headers('authorization') auth?: string,
+  ) {
+    this.service(auth);
+    if (!this.paystack) throw new NotFoundError('Charge');
+
+    const r = await this.paystack.verify(reference);
+    return {
+      reference,
+      status: r.status,
+      amountPesewas: r.amount.toString(),
+      feePesewas: r.feePesewas.toString(),
+    };
+  }
 
   private service(auth?: string): Claims {
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedError();
@@ -384,6 +453,8 @@ export interface PaymentDeps {
   processor?: PaystackWebhookProcessor;
   obligations?: ObligationSource;
   verifyToken?: VerifyToken;
+  /** Null disables charge initiation; the webhook route is separate. */
+  paystack?: PaystackClient | null;
 }
 
 @Module({})
@@ -403,6 +474,7 @@ export class PaymentHttpModule {
       { provide: LEDGER, useValue: ledger },
       { provide: COD_STATE, useValue: obligations },
       { provide: VERIFY_TOKEN, useValue: verify },
+      { provide: PAYSTACK_CLIENT, useValue: deps.paystack ?? null },
     ];
 
     // The webhook route only exists when a processor (and therefore a secret

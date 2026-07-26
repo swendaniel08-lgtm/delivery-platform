@@ -403,9 +403,13 @@ describe('checkout, priced by the real pricing service', () => {
 
     // 2 x GHS 35.00 straight from the catalogue.
     assert.equal(q.itemTotalPesewas, '7000');
-    // Accra Central -> Osu is ~5.3km, which lands in the 3-7km tier.
-    assert.ok(Number(q.distanceMetres) > 4000 && Number(q.distanceMetres) < 7000,
+    // Accra Central -> Osu is ~5.3km straight-line. With no Maps key the
+    // BFF applies the 1.4 road-winding factor, so ~7.5km is correct — and
+    // it errs HIGH, so an outage cannot undercharge for delivery.
+    assert.ok(Number(q.distanceMetres) > 4_000 && Number(q.distanceMetres) < 9_000,
       `implausible distance: ${q.distanceMetres}`);
+    assert.equal(q.distanceSource, 'estimate',
+      'no GOOGLE_MAPS_SERVER_KEY in this suite, so it must say so');
     assert.equal(
       BigInt(q.totalPesewas),
       BigInt(q.itemTotalPesewas) + BigInt(q.deliveryFeePesewas)

@@ -92,6 +92,7 @@ before(async () => {
       upstreams: {
         identity: client('identity'), catalogue: client('catalogue'),
         order: client('order'), pricing: client('pricing'), tracking: client('tracking'),
+        payment: client('payment'),
       },
     }),
   });
@@ -419,6 +420,56 @@ describe('customer checkout', () => {
     assert.equal(r.status, 201);
     const b = await r.json() as any;
     assert.equal(b.requiresApproval, false, 'cash needs no Paystack prompt');
+  });
+
+  test('A MOMO CHARGE IS INITIATED after the order exists', async () => {
+    stubCheckout();
+    route('POST /payments/internal/charges/momo', {
+      reference: 'order:o-new:1', status: 'pending',
+      displayText: 'Approve the payment on your phone',
+      awaitingApproval: true,
+    });
+
+    const r = await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'prepaid', momoPhone: '0244123456' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'checkout-momo-1' });
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 201);
+    assert.equal(b.charge.status, 'pending');
+    assert.equal(b.requiresApproval, true,
+      'a 201 means "Paystack accepted the request", NOT "the customer paid"');
+
+    // Order first, charge second. A charge with no order to attach it to is
+    // a refund waiting to happen.
+    const orderAt = calls.indexOf('POST /orders');
+    const chargeAt = calls.indexOf('POST /payments/internal/charges/momo');
+    assert.ok(orderAt >= 0 && chargeAt > orderAt,
+      'the order must exist before money is asked for');
+  });
+
+  test('a failed charge does NOT lose the order', async () => {
+    stubCheckout();
+    failing.add('/payments/internal/charges');
+
+    const r = await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'prepaid', momoPhone: '0244123456' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'checkout-momo-fail' });
+    const b = await r.json() as any;
+
+    assert.equal(r.status, 201, 'the order stands; the app offers a retry');
+    assert.equal(b.orderId, 'o-new');
+    assert.equal(b.charge.failed, true);
+  });
+
+  test('cash orders never touch Paystack', async () => {
+    stubCheckout({ codEligible: true });
+    await post(customerSvc.url, '/api/customer/checkout',
+      { ...cart, paymentIntent: 'cod' },
+      { ...as('c1', 'customer'), 'idempotency-key': 'checkout-cash-1' });
+
+    assert.ok(!calls.some((c) => c.includes('charges/momo')),
+      'asking a cash customer to approve a prompt would be nonsense');
   });
 
   test('the idempotency key is forwarded to order-svc', async () => {

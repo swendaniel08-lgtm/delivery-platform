@@ -30,6 +30,7 @@ import { InMemoryLedgerRepository } from './memory-ledger-repository.ts';
 import {
   PaystackWebhookProcessor, InMemoryWebhookStore, type WebhookHandlers,
 } from './paystack/webhook.ts';
+import { PaystackClient, HttpPaystackTransport } from './paystack/client.ts';
 
 const NAME = 'svc-payment';
 
@@ -65,7 +66,13 @@ async function main() {
     pool ? new PgLedgerRepository(pool) : new InMemoryLedgerRepository(),
   );
 
-  /* ---- Paystack webhook --------------------------------------------- */
+  /* ---- Paystack --------------------------------------------------- */
+  // The client INITIATES charges; the webhook CONFIRMS them. Two different
+  // directions, and only the second one is allowed to move money.
+  const paystackClient = paystack
+    ? new PaystackClient(new HttpPaystackTransport(paystack.secretKey))
+    : null;
+
   let processor: PaystackWebhookProcessor | undefined;
   if (paystack) {
     // These handlers are where a confirmed payment becomes ledger movement.
@@ -120,6 +127,7 @@ async function main() {
       pool,
       ledger,
       ...(processor ? { processor } : {}),
+      paystack: paystackClient,
       verifyToken: (token) => verifyAccessToken(token, jwt.accessSecret),
     }),
   });

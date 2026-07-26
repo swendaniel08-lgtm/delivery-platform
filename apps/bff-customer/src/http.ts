@@ -44,6 +44,7 @@ export interface CustomerUpstreams {
   order: ServiceClient;
   pricing: ServiceClient;
   tracking: ServiceClient;
+  payment: ServiceClient;
 }
 
 function requireFields(body: any, fields: string[]): void {
@@ -384,6 +385,30 @@ export class CustomerBffController {
       }],
     }, { bearerToken: token, idempotencyKey });
 
+    // Kick off the mobile-money charge. Deliberately AFTER the order
+    // exists: a charge with no order to attach it to is a refund waiting
+    // to happen, whereas an order with no charge is simply unpaid and
+    // expires on its own timer.
+    let charge: Record<string, unknown> | null = null;
+    if (body.paymentIntent === 'prepaid' && body.momoPhone) {
+      try {
+        charge = await this.up.payment.post('/payments/internal/charges/momo', {
+          orderId: order.id,
+          amountPesewas: quote.totalPesewas,
+          phone: String(body.momoPhone),
+          // Paystack requires an email. Customers sign up with a phone, so
+          // a deterministic per-order address keeps their receipts
+          // separable without inventing a mailbox they do not own.
+          email: body.email ?? `${c.sub}@customers.besonc.app`,
+          attempt: 1,
+        }, { bearerToken: token });
+      } catch (e) {
+        // The order stands. The app shows the failure and offers a retry
+        // rather than losing a cart the customer already assembled.
+        charge = { failed: true, reason: (e as Error).message };
+      }
+    }
+
     return {
       orderId: order.id,
       humanRef: order.humanRef,
@@ -392,6 +417,7 @@ export class CustomerBffController {
       // Mobile money needs the customer to approve a prompt, so the app
       // must WAIT rather than show a success screen on this response.
       requiresApproval: body.paymentIntent === 'prepaid',
+      ...(charge ? { charge } : {}),
     };
   }
 
