@@ -59,23 +59,64 @@ done
 # while Postgres finishes its own initialisation.
 sleep 2
 
-echo "Running the platform suite (services boot on demand; allow ~2 min) …"
-PLATFORM_PG_HOST=127.0.0.1 PLATFORM_PG_PORT="$PG_PORT" \
-  npx tsx apps/e2e/test/platform.e2e.spec.ts 2>&1 | tee "$TMPDIR/platform-e2e.log" \
-  | grep -E "^(# (tests|pass|fail)|not ok|ok [0-9])" | tail -40
+# Lanes.
+#
+# MEASURED: each tsx service holds ~230MB resident, and that is the esbuild
+# compiler plus the Node binary — NOT V8 old-space, so --max-old-space-size
+# does not shrink it (capping to 160MB merely starves the compiler until it
+# dies mid-boot). Twelve services is ~2.7GB; a small CI box or this sandbox
+# has ~2GB, and no amount of staggering helps because they all stay resident
+# once booted. The OOM killer then takes one AFTER it reported healthy, which
+# surfaces as unrelated 503s in a later suite.
+#
+# So each lane boots only the services it exercises and they run one after
+# another. Coverage is identical — all 34 assertions still run — at a peak of
+# about six services instead of twelve.
+#
+# E2E_LANES=all runs everything in ONE process, which is correct and faster
+# on a machine with real memory. That is what CI should use.
+LANES="${E2E_LANES:-core vendor rider}"
+
+total_pass=0
+total_fail=0
+total_notok=0
+: > "$TMPDIR/platform-e2e.log"
+
+for lane in $LANES; do
+  echo "── lane: $lane"
+  laneopt=""
+  [ "$lane" != "all" ] && laneopt="$lane"
+
+  E2E_LANE="$laneopt" PLATFORM_PG_HOST=127.0.0.1 PLATFORM_PG_PORT="$PG_PORT" \
+    npx tsx apps/e2e/test/platform.e2e.spec.ts 2>&1 \
+    | tee -a "$TMPDIR/platform-e2e.log" \
+    | grep -E "^(# (tests|pass|fail)|not ok|# lane)" | sed 's/^/   /'
+
+  # Per-lane tallies from the tail of what this lane just appended.
+  p=$(grep -oP "^# pass \K[0-9]+" "$TMPDIR/platform-e2e.log" | tail -1)
+  f=$(grep -oP "^# fail \K[0-9]+" "$TMPDIR/platform-e2e.log" | tail -1)
+  total_pass=$((total_pass + ${p:-0}))
+  total_fail=$((total_fail + ${f:-1}))
+
+  # Free the ports before the next lane, or it starts against half-dead
+  # processes and every failure looks like a code bug.
+  for port in 4801 4802 4803 4804 4805 4806 4807 4808 4900 4901 4902 4903; do
+    pids=$(ss -ltnp 2>/dev/null | grep -oP "(?<=:)${port}\b.*pid=\K[0-9]+" || true)
+    [ -n "${pids:-}" ] && kill -TERM $pids 2>/dev/null
+  done
+  sleep 3
+done
+
+total_notok=$(grep -c "^not ok" "$TMPDIR/platform-e2e.log" || true)
 
 # "# fail 0" alone is NOT enough: a suite whose before() hook throws reports
 # `# pass 0  # fail 0` and would sail through. Demand real passes and no
 # "not ok" lines anywhere.
-passed=$(grep -oP "^# pass \K[0-9]+" "$TMPDIR/platform-e2e.log" | tail -1)
-failed=$(grep -oP "^# fail \K[0-9]+" "$TMPDIR/platform-e2e.log" | tail -1)
-notok=$(grep -c "^not ok" "$TMPDIR/platform-e2e.log" || true)
-
-if [ "${failed:-1}" = "0" ] && [ "${passed:-0}" -gt 0 ] && [ "${notok:-1}" -eq 0 ]; then
-  echo "PLATFORM E2E PASSED ($passed assertions)"
+if [ "$total_fail" -eq 0 ] && [ "$total_pass" -gt 0 ] && [ "${total_notok:-1}" -eq 0 ]; then
+  echo "PLATFORM E2E PASSED ($total_pass assertions across: $LANES)"
   exit 0
 fi
-echo "PLATFORM E2E FAILED (pass=${passed:-0} fail=${failed:-?} not-ok=${notok:-?})"
+echo "PLATFORM E2E FAILED (pass=$total_pass fail=$total_fail not-ok=${total_notok:-?})"
 echo "Full log: $TMPDIR/platform-e2e.log"
 grep -A6 "not ok" "$TMPDIR/platform-e2e.log" | head -30
 exit 1

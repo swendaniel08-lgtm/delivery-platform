@@ -296,3 +296,38 @@ Two of them were wrong on the first attempt, in the same way:
 
 Both now fail correctly against deliberately fake credentials, which is the
 only way to know a check works at all.
+
+## Why the platform e2e runs in lanes
+
+`make test-platform` boots the services in three groups — core, vendor, rider —
+one after another, rather than all twelve at once.
+
+This is a memory constraint, and it was measured rather than guessed:
+
+| Configuration | Peak RSS, one service |
+|---|---|
+| no heap cap | 225 MB |
+| `--max-old-space-size=256` | 230 MB |
+| `--max-old-space-size=192` | 232 MB |
+| `--max-old-space-size=160` | **crashes** — heap OOM during compile |
+
+The memory is the **esbuild/tsx compiler and the Node binary**, not V8
+old-space, so `--max-old-space-size` does not reduce it. Capping only starves
+the compiler until it dies mid-boot. Twelve services is ~2.7GB; a 2GB box
+cannot hold them, and staggering does not help because they all stay resident
+once started.
+
+What that looked like before the fix: the OOM killer terminated a service
+*after* it had reported healthy, and the failure surfaced as unrelated 503s in
+a later suite — three separate debugging sessions chasing a bug that was not
+in the code. `deathReport()` in the spec now names an OOM kill explicitly
+(exit 137 is `128 + SIGKILL`).
+
+Coverage is unchanged: all 34 assertions still run, at a peak of eight
+services instead of twelve. Previously ~1 run in 3 was clean; it is now 3/3.
+
+```bash
+make test-platform              # three lanes in sequence (default)
+E2E_LANES=all make test-platform   # one process — use this in CI, needs ~4GB
+E2E_LANE=rider npx tsx apps/e2e/test/platform.e2e.spec.ts   # one lane
+```

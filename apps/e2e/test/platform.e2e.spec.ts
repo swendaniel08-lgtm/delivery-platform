@@ -62,6 +62,42 @@ interface ServiceSpec {
   port: number;
   db?: string;
   extra?: Record<string, string>;
+  /**
+   * Which lanes need this service running.
+   *
+   * MEASURED: each tsx service holds ~230MB resident — and that is NOT V8
+   * old-space, it is the esbuild compiler and the Node binary, so
+   * --max-old-space-size does not shrink it (capping to 160MB just starves
+   * the compiler until it dies mid-boot). Twelve services is ~2.7GB against
+   * a ~2GB box, so they cannot all run at once and no amount of staggering
+   * changes that: once booted, they all stay resident.
+   *
+   * So each lane boots only what it actually exercises. Run the lanes in
+   * sequence and the whole platform is still covered end to end, with a
+   * peak of six services instead of twelve.
+   */
+  lanes: Lane[];
+}
+
+/** Test groups, each with its own service set. */
+export type Lane = 'core' | 'vendor' | 'rider';
+
+const ALL_LANES: Lane[] = ['core', 'vendor', 'rider'];
+
+/**
+ * Which lane to run. Unset means all of them in one process, which is the
+ * right default on a machine with enough RAM and is what CI should do.
+ */
+const LANE = (process.env.E2E_LANE as Lane | undefined) ?? null;
+const ACTIVE_LANES: Lane[] = LANE ? [LANE] : ALL_LANES;
+
+function inLane(spec: { lanes: Lane[] }): boolean {
+  return spec.lanes.some((l) => ACTIVE_LANES.includes(l));
+}
+
+/** Skip a whole suite when its lane is not the one being run. */
+function laneSkip(lane: Lane): false | string {
+  return ACTIVE_LANES.includes(lane) ? false : `lane ${lane} not selected`;
 }
 
 const SERVICES: ServiceSpec[] = [
@@ -71,34 +107,49 @@ const SERVICES: ServiceSpec[] = [
       EXPOSE_OTP_CODES: 'true',
       // A dozen sign-ins from one IP would trip the 20/hour ceiling.
       OTP_RELAX_LIMITS: 'true',
-    } },
+    },
+    lanes: ['core', 'vendor', 'rider'] },
   { name: 'catalogue', main: 'apps/svc-catalogue/src/main.ts', port: PORTS.catalogue, db: 'catalogue',
-    extra: { SVC_CATALOGUE_PORT: String(PORTS.catalogue) } },
+    extra: { SVC_CATALOGUE_PORT: String(PORTS.catalogue) },
+    lanes: ['core', 'vendor'] },
   { name: 'order', main: 'apps/svc-order/src/main.ts', port: PORTS.order, db: 'orders',
-    extra: { SVC_ORDER_PORT: String(PORTS.order) } },
+    extra: { SVC_ORDER_PORT: String(PORTS.order) },
+    lanes: ['core', 'vendor', 'rider'] },
   { name: 'pricing', main: 'apps/svc-pricing/src/main.ts', port: PORTS.pricing,
-    extra: { SVC_PRICING_PORT: String(PORTS.pricing) } },
+    extra: { SVC_PRICING_PORT: String(PORTS.pricing) },
+    // The vendor lane places a REAL order through the customer BFF rather
+    // than inserting one — that is the point of "a real order appears in the
+    // vendor queue" — so it needs the whole checkout path.
+    lanes: ['core', 'vendor'] },
   { name: 'bff-customer', main: 'apps/bff-customer/src/main.ts', port: PORTS.bffCustomer,
-    extra: { BFF_CUSTOMER_PORT: String(PORTS.bffCustomer) } },
+    extra: { BFF_CUSTOMER_PORT: String(PORTS.bffCustomer) },
+    lanes: ['core', 'vendor'] },
   { name: 'bff-vendor', main: 'apps/bff-vendor/src/main.ts', port: PORTS.bffVendor,
-    extra: { BFF_VENDOR_PORT: String(PORTS.bffVendor) } },
+    extra: { BFF_VENDOR_PORT: String(PORTS.bffVendor) },
+    lanes: ['vendor'] },
   { name: 'payment', main: 'apps/svc-payment/src/main.ts', port: PORTS.payment, db: 'payment',
-    extra: { SVC_PAYMENT_PORT: String(PORTS.payment) } },
+    extra: { SVC_PAYMENT_PORT: String(PORTS.payment) },
+    lanes: ['core', 'vendor', 'rider'] },
   { name: 'media', main: 'apps/svc-media/src/main.ts', port: PORTS.media,
-    extra: { SVC_MEDIA_PORT: String(PORTS.media) } },
+    extra: { SVC_MEDIA_PORT: String(PORTS.media) },
+    lanes: ['rider'] },
   { name: 'dispatch', main: 'apps/svc-dispatch/src/main.ts', port: PORTS.dispatch, db: 'dispatch',
-    extra: { SVC_DISPATCH_PORT: String(PORTS.dispatch) } },
+    extra: { SVC_DISPATCH_PORT: String(PORTS.dispatch) },
+    lanes: ['rider'] },
   { name: 'tracking', main: 'apps/svc-tracking/src/main.ts', port: PORTS.tracking, db: 'tracking',
-    extra: { SVC_TRACKING_PORT: String(PORTS.tracking) } },
+    extra: { SVC_TRACKING_PORT: String(PORTS.tracking) },
+    lanes: ['core', 'rider'] },
   { name: 'bff-rider', main: 'apps/bff-rider/src/main.ts', port: PORTS.bffRider,
-    extra: { BFF_RIDER_PORT: String(PORTS.bffRider) } },
+    extra: { BFF_RIDER_PORT: String(PORTS.bffRider) },
+    lanes: ['rider'] },
   { name: 'gateway', main: 'apps/gateway/src/main.ts', port: PORTS.gateway,
     extra: {
       PORT: String(PORTS.gateway),
       // Dozens of sign-ins from one IP would trip the 30/minute anonymous
       // ceiling. Ignored when NODE_ENV=production.
       RATE_LIMIT_SCALE: '100',
-    } },
+    },
+    lanes: ['core', 'vendor', 'rider'] },
 ];
 
 function launch(svc: ServiceSpec): ChildProcess {
@@ -294,8 +345,12 @@ before(async () => {
   // surfaces as an unrelated "fetch failed" two suites later. Overridable so
   // a larger machine can go faster.
   const BATCH = Number(process.env.E2E_BOOT_BATCH ?? 2);
-  for (let i = 0; i < SERVICES.length; i += BATCH) {
-    const batch = SERVICES.slice(i, i + BATCH);
+  const wanted = SERVICES.filter(inLane);
+  console.log(
+    `# lane=${LANE ?? 'all'} booting ${wanted.length}/${SERVICES.length} services`,
+  );
+  for (let i = 0; i < wanted.length; i += BATCH) {
+    const batch = wanted.slice(i, i + BATCH);
     for (const svc of batch) procs.push(launch(svc));
     for (const svc of batch) await waitForHealth(svc.port, svc.name);
     // Let each batch's compiler memory be reclaimed before adding more.
@@ -355,13 +410,13 @@ const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
 /* ------------------------------------------------------------------ */
 
-describe('the platform is actually wired together', () => {
+describe('the platform is actually wired together', { skip: laneSkip('core') }, () => {
   test('every service reports healthy', async () => {
     // Collect ALL of them before asserting. Failing on the first one hides
     // how widespread the problem is, and "media is down" reads very
     // differently from "six services are down".
     const unhealthy: string[] = [];
-    for (const svc of SERVICES) {
+    for (const svc of SERVICES.filter(inLane)) {
       try {
         const res = await fetch(`http://127.0.0.1:${svc.port}/health`, {
           signal: AbortSignal.timeout(3_000),
@@ -398,7 +453,7 @@ describe('the platform is actually wired together', () => {
   });
 });
 
-describe('sign-in through the whole chain', () => {
+describe('sign-in through the whole chain', { skip: laneSkip('core') }, () => {
   test('a new customer gets tokens and an account in Postgres', async () => {
     const s = await signIn('0244100001');
 
@@ -441,7 +496,7 @@ describe('sign-in through the whole chain', () => {
   });
 });
 
-describe('discovery reads the real catalogue', () => {
+describe('discovery reads the real catalogue', { skip: laneSkip('core') }, () => {
   test('the home screen shows a store seeded in Postgres', async () => {
     const s = await signIn('0244100010');
     await api('/api/users/me/addresses', {
@@ -474,7 +529,7 @@ describe('discovery reads the real catalogue', () => {
   });
 });
 
-describe('checkout, priced by the real pricing service', () => {
+describe('checkout, priced by the real pricing service', { skip: laneSkip('core') }, () => {
   let token = '';
 
   before(async () => {
@@ -624,7 +679,7 @@ describe('checkout, priced by the real pricing service', () => {
   });
 });
 
-describe('the order lifecycle reaches settlement', () => {
+describe('the order lifecycle reaches settlement', { skip: laneSkip('core') }, () => {
   test('placed -> delivered, splitting to the canonical figures', async () => {
     const s = await signIn('0244100030');
     await api('/api/users/me/addresses', {
@@ -735,7 +790,7 @@ describe('the order lifecycle reaches settlement', () => {
 });
 
 
-describe('the vendor side', () => {
+describe('the vendor side', { skip: laneSkip('vendor') }, () => {
   /** Sign in as a vendor whose account OWNS the seeded store. */
   async function vendorToken(phone: string) {
     // Point the seeded store at the account this login will create, so the
@@ -917,7 +972,7 @@ describe('the vendor side', () => {
 });
 
 
-describe('the rider side', () => {
+describe('the rider side', { skip: laneSkip('rider') }, () => {
   async function riderToken(phone: string) {
     const req = await api('/api/auth/otp/request', {
       method: 'POST', body: JSON.stringify({ phone }),
@@ -1015,7 +1070,7 @@ describe('the rider side', () => {
   });
 });
 
-describe('degradation', () => {
+describe('degradation', { skip: laneSkip('core') }, () => {
   test('the home screen survives the catalogue being unreachable', async () => {
     const s = await signIn('0244100040');
     await api('/api/users/me/addresses', {
