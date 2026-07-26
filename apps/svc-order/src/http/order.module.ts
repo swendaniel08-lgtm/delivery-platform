@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { NotFoundError, ValidationError, ConflictError } from '../../../../libs/platform/src/errors.ts';
 
 import {
-  OrderQueries, nextLegState, orderEventFor, ACTIVE_ORDER_STATES,
+  OrderQueries, nextLegState, orderEventFor, ACTIVE_ORDER_STATES, decodeCursor,
 } from './queries.ts';
 
 export const PG = Symbol('PG_POOL');
@@ -395,12 +395,13 @@ export class OrderQueryController {
     }
 
     if (customerId) {
-      return {
-        orders: await this.q.forCustomer(customerId, {
-          active: query.active === 'true' || query.active === true,
-          ...(query.limit ? { limit: Number(query.limit) } : {}),
-        }),
-      };
+      const before = query.cursor ? decodeCursor(String(query.cursor)) : null;
+      const page = await this.q.forCustomer(customerId, {
+        active: query.active === 'true' || query.active === true,
+        ...(query.limit ? { limit: Number(query.limit) } : {}),
+        ...(before ? { before } : {}),
+      });
+      return { orders: page.orders, nextCursor: page.nextCursor };
     }
 
     const states = typeof query.states === 'string' && query.states.length

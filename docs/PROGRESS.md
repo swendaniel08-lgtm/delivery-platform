@@ -1002,3 +1002,32 @@ place; a closed window hides the composer and says why.
 Verified by mutation: breaking `stopPolling()` turns the suite red.
 
 Specs: 868 TS unit, 204 integration, 34 platform e2e, **521 Dart (+32)**.
+
+## Session: order history
+
+The screen a customer opens to find a receipt, reorder, or — most often —
+check whether they were charged twice. That last case sets the bar.
+
+**Keyset pagination, not OFFSET.** The list is newest-first, so an order
+placed while scrolling shifts every row down and `OFFSET 20` makes page 2
+re-serve the tail of page 1. Seeing the same order twice on the screen you
+opened to check for a double charge is the worst bug this screen could have.
+The cursor is `(created_at, id)` — `created_at` alone is not unique, and two
+orders in the same millisecond would silently drop one.
+
+Verified against a live order-svc: read page 1, insert a new order, read
+page 2 — continues cleanly with no repeat.
+
+**Three states that must never look alike**, in the controller and on screen:
+"you have no orders", "we could not reach the server", "still loading". A
+failure rendering as an empty list is how someone concludes their orders
+vanished and phones support. A failed refresh keeps the previous rows with a
+banner rather than blanking the page; a failed *page* keeps the pages already
+loaded and offers a retry in the footer.
+
+**Bug found by testing:** `?limit=abc` produced `NaN`, and `clamp(NaN)` is
+still `NaN`, which reaches Postgres as the string "NaN" and 500s. Guarded.
+
+Mutation-tested: reverting the query to OFFSET turns the race spec red.
+
+Specs: 868 TS unit, **222 integration (+18)**, 34 platform e2e, **548 Dart (+27)**.

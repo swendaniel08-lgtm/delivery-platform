@@ -9,6 +9,9 @@ library;
 import 'package:flutter/material.dart';
 import 'package:besonc_api/besonc_api.dart';
 import 'package:besonc_chat/besonc_chat.dart';
+
+import '../screens/history_screen.dart';
+import '../state/history_controller.dart';
 import 'package:besonc_auth/besonc_auth.dart';
 import 'package:besonc_auth/auth_screens.dart';
 import 'package:besonc_models/besonc_models.dart';
@@ -161,6 +164,7 @@ class _CustomerRootState extends State<CustomerRoot> {
               final active = home.data?.activeOrder;
               if (active != null) _openTracking(context, deps, active);
             },
+            onOpenHistory: () => _openHistory(context, deps),
           ),
         );
       },
@@ -573,5 +577,77 @@ class _ChatPageState extends State<ChatPage> {
           emptyHint: 'Tell your rider how to find you — the gate colour, a '
               'landmark, or which floor.',
         ),
+      );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Order history                                                       */
+/* ------------------------------------------------------------------ */
+
+/// Fetches history pages from bff-customer.
+class ApiHistorySource implements HistorySource {
+  ApiHistorySource(this._api);
+  final BesoncApi _api;
+
+  @override
+  Future<({List<HistoryOrder> orders, String? nextCursor})> fetch({
+    String? cursor,
+  }) async {
+    final json = await _api.get(
+      '/api/customer/orders',
+      // The cursor is opaque and passed straight back. The app must never
+      // construct or interpret one — that would freeze the server's
+      // pagination scheme in place.
+      query: cursor == null ? null : {'cursor': cursor},
+    );
+    final raw = json['orders'];
+    return (
+      orders: raw is List
+          ? raw
+              .whereType<Map<String, dynamic>>()
+              .map(HistoryOrder.fromJson)
+              .toList(growable: false)
+          : const <HistoryOrder>[],
+      nextCursor: json['nextCursor'] as String?,
+    );
+  }
+}
+
+void _openHistory(BuildContext context, AppDependencies deps) {
+  Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (_) => HistoryPage(deps: deps),
+  ));
+}
+
+class HistoryPage extends StatefulWidget {
+  const HistoryPage({super.key, required this.deps});
+
+  final AppDependencies deps;
+
+  @override
+  State<HistoryPage> createState() => _HistoryPageState();
+}
+
+class _HistoryPageState extends State<HistoryPage> {
+  late final HistoryController _history =
+      HistoryController(source: ApiHistorySource(widget.deps.api));
+
+  @override
+  void initState() {
+    super.initState();
+    _history.refresh();
+  }
+
+  @override
+  void dispose() {
+    _history.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => HistoryScreen(
+        controller: _history,
+        onClose: () => Navigator.of(context).pop(),
       );
 }

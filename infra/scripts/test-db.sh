@@ -31,7 +31,7 @@ for _ in $(seq 1 50); do $D exec mq rabbitmq-diagnostics -q ping >/dev/null 2>&1
 for _ in $(seq 1 30); do curl -sf http://127.0.0.1:59000/minio/health/live >/dev/null && break; sleep 1; done
 
 fail=0
-for f in apps/svc-payment/test/ledger-service.spec.ts apps/svc-order/test/outbox-timers.spec.ts apps/svc-dispatch/test/dispatch-redis.spec.ts apps/e2e/test/order-flow.e2e.spec.ts apps/svc-payment/test/cod.spec.ts apps/svc-admin/test/audit.spec.ts apps/e2e/test/outbox-relay.e2e.spec.ts apps/e2e/test/service-bootstrap.e2e.spec.ts apps/e2e/test/schemas.e2e.spec.ts apps/svc-media/test/s3.integration.spec.ts apps/svc-messaging/test/dedupe-redis.spec.ts apps/svc-tracking/test/pg-tracking-store.spec.ts apps/svc-messaging/test/pg-chat-store.spec.ts; do
+for f in apps/svc-payment/test/ledger-service.spec.ts apps/svc-order/test/outbox-timers.spec.ts apps/svc-dispatch/test/dispatch-redis.spec.ts apps/e2e/test/order-flow.e2e.spec.ts apps/svc-payment/test/cod.spec.ts apps/svc-admin/test/audit.spec.ts apps/e2e/test/outbox-relay.e2e.spec.ts apps/e2e/test/service-bootstrap.e2e.spec.ts apps/e2e/test/schemas.e2e.spec.ts apps/svc-media/test/s3.integration.spec.ts apps/svc-messaging/test/dedupe-redis.spec.ts apps/svc-tracking/test/pg-tracking-store.spec.ts apps/svc-messaging/test/pg-chat-store.spec.ts apps/svc-order/test/history-pagination.spec.ts; do
   echo "── $f"
   out=$(npx tsx "$f" 2>&1); code=$?
   echo "$out" | grep -E "^# (tests|pass|fail)" | sed 's/^/   /'

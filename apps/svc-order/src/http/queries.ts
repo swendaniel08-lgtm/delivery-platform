@@ -97,13 +97,72 @@ function toListRow(r: any): OrderListRow {
   };
 }
 
+/**
+ * Cursors are opaque base64. Not for secrecy — anyone can decode it — but so
+ * that clients cannot construct one by hand and depend on its shape, which
+ * would freeze this pagination scheme forever.
+ */
+export function encodeCursor(createdAt: Date | string, id: string): string {
+  const iso = createdAt instanceof Date ? createdAt.toISOString() : createdAt;
+  return Buffer.from(`${iso}|${id}`).toString('base64url');
+}
+
+export function decodeCursor(
+  cursor: string,
+): { createdAt: string; id: string } | null {
+  try {
+    const [createdAt, id] = Buffer.from(cursor, 'base64url')
+      .toString('utf8').split('|');
+    if (!createdAt || !id) return null;
+    // A malformed cursor must not become a 500. Treat it as "start from the
+    // beginning" — the worst case is the customer sees page one again.
+    if (Number.isNaN(Date.parse(createdAt))) return null;
+    return { createdAt, id };
+  } catch {
+    return null;
+  }
+}
+
 export class OrderQueries {
   constructor(private readonly pool: Pool) {}
 
-  /** A customer's orders. `active` filters to the ones still in flight. */
+  /**
+   * A customer's orders. `active` filters to the ones still in flight.
+   *
+   * KEYSET pagination, not OFFSET. Two reasons, and the second is the one
+   * that matters:
+   *
+   *   1. `OFFSET 200` makes Postgres walk and discard 200 rows every time.
+   *   2. More importantly, OFFSET is WRONG here. This list is ordered by
+   *      `created_at DESC`, and a customer placing a new order while
+   *      scrolling their history shifts every row down by one — so page 2
+   *      repeats the last item of page 1. A cursor anchored to the row you
+   *      last saw cannot do that.
+   *
+   * The cursor is `(created_at, id)`. `created_at` alone is not unique:
+   * two orders placed in the same millisecond would make the boundary
+   * ambiguous and silently drop one.
+   */
   async forCustomer(
-    customerId: string, opts: { active?: boolean; limit?: number } = {},
-  ): Promise<OrderListRow[]> {
+    customerId: string,
+    opts: {
+      active?: boolean;
+      limit?: number;
+      /** Return orders strictly older than this. */
+      before?: { createdAt: string; id: string };
+    } = {},
+  ): Promise<{ orders: OrderListRow[]; nextCursor: string | null }> {
+    // Bounded regardless of what the caller asks for: an app that requests
+    // 10,000 rows would be served them, on a Ghanaian mobile connection.
+    //
+    // The Number.isFinite guard is not defensive padding. `?limit=abc` gives
+    // NaN, and clamp(NaN) is still NaN — which reaches Postgres as the string
+    // "NaN" and 500s on a customer's history screen. Found by testing it.
+    const asked = Number(opts.limit);
+    const limit = Number.isFinite(asked)
+      ? Math.min(Math.max(Math.trunc(asked), 1), 50)
+      : 20;
+
     const r = await this.pool.query(
       `SELECT o.*, ${LINES_JSON},
               (SELECT dl.assigned_rider_id FROM delivery_legs dl
@@ -112,11 +171,30 @@ export class OrderQueries {
          FROM orders o
         WHERE o.customer_id = $1
           AND ($2::boolean IS NOT TRUE OR o.state = ANY($3))
-        ORDER BY o.created_at DESC
-        LIMIT $4`,
-      [customerId, opts.active ?? false, ACTIVE_ORDER_STATES, opts.limit ?? 20],
+          AND ($4::timestamptz IS NULL
+               OR (o.created_at, o.id) < ($4::timestamptz, $5::uuid))
+        ORDER BY o.created_at DESC, o.id DESC
+        LIMIT $6`,
+      [
+        customerId,
+        opts.active ?? false,
+        ACTIVE_ORDER_STATES,
+        opts.before?.createdAt ?? null,
+        opts.before?.id ?? null,
+        // One extra row tells us whether another page exists without a
+        // second COUNT query over the whole history.
+        limit + 1,
+      ],
     );
-    return r.rows.map(toListRow);
+
+    const hasMore = r.rows.length > limit;
+    const page = hasMore ? r.rows.slice(0, limit) : r.rows;
+    const last = page[page.length - 1];
+
+    return {
+      orders: page.map(toListRow),
+      nextCursor: hasMore && last ? encodeCursor(last.created_at, last.id) : null,
+    };
   }
 
   /**

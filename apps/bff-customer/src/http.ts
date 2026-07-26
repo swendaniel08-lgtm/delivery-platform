@@ -440,6 +440,35 @@ export class CustomerBffController {
     }
     return { lat: addr.latitude, lng: addr.longitude };
   }
+  /**
+   * Order history.
+   *
+   * Paginated with an opaque cursor rather than a page number: the list is
+   * newest-first, so placing an order while scrolling would shift every row
+   * and make page 2 repeat the tail of page 1.
+   *
+   * Deliberately NOT degraded. An empty history and "we could not reach the
+   * order service" look identical to a customer, and one of them means
+   * "where did my orders go?" — a support call we should not manufacture.
+   */
+  @Get('orders')
+  async history(@Query() q: any, @Headers('authorization') auth?: string) {
+    const c = this.claims(auth);
+    const token = bearer(auth);
+
+    const params = new URLSearchParams({ customerId: c.sub });
+    if (q.cursor) params.set('cursor', String(q.cursor));
+    if (q.limit) params.set('limit', String(q.limit));
+    if (q.active === 'true') params.set('active', 'true');
+
+    const r = await this.up.order.get(`/orders?${params}`, { bearerToken: token });
+
+    return {
+      orders: (r.orders ?? []).map(historyOrder),
+      nextCursor: r.nextCursor ?? null,
+    };
+  }
+
   /* ---------------- chat ---------------- */
 
   /**
@@ -502,6 +531,33 @@ function storeCard(s: any) {
     isOpen: s.isOpen ?? false,
     ...(s.opensAt ? { opensAt: s.opensAt } : {}),
     ...(s.distanceMetres !== undefined ? { distanceMetres: s.distanceMetres } : {}),
+  };
+}
+
+/**
+ * One row of order history.
+ *
+ * Money is formatted HERE, once, by the server. Three apps and a dashboard
+ * each doing their own cedi formatting is three chances to disagree about
+ * what a customer paid.
+ */
+function historyOrder(o: any) {
+  return {
+    id: o.id,
+    humanRef: o.humanRef ?? o.human_ref,
+    state: o.state,
+    service: o.service,
+    totalPesewas: String(o.totalPesewas ?? o.total_pesewas ?? '0'),
+    totalDisplay: formatCedis(BigInt(o.totalPesewas ?? o.total_pesewas ?? '0')),
+    storeName: o.storeName ?? null,
+    isCod: o.isCod ?? o.payment_intent === 'cod',
+    placedAt: o.placedAt ?? o.placed_at ?? o.createdAt ?? o.created_at,
+    // A count, not the lines themselves: the history list shows "3 items",
+    // and shipping every modifier of every line for a screen that does not
+    // render them is bytes the customer pays for.
+    itemCount: Array.isArray(o.lines)
+      ? o.lines.reduce((n: number, l: any) => n + Number(l.quantity ?? 1), 0)
+      : 0,
   };
 }
 

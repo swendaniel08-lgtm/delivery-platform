@@ -74,6 +74,7 @@ class HomeScreen extends StatelessWidget {
     this.onOpenStore,
     this.onOpenActiveOrder,
     this.onSearch,
+    this.onOpenHistory,
   });
 
   final LoadState state;
@@ -85,6 +86,7 @@ class HomeScreen extends StatelessWidget {
   final void Function(String storeId)? onOpenStore;
   final VoidCallback? onOpenActiveOrder;
   final VoidCallback? onSearch;
+  final VoidCallback? onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +105,7 @@ class HomeScreen extends StatelessWidget {
           LoadState.ready => _HomeBody(
               data: data!,
               onChangeAddress: onChangeAddress,
+              onOpenHistory: onOpenHistory,
               onOpenService: onOpenService,
               onOpenStore: onOpenStore,
               onOpenActiveOrder: onOpenActiveOrder,
@@ -122,6 +125,7 @@ class _HomeBody extends StatelessWidget {
     this.onOpenStore,
     this.onOpenActiveOrder,
     this.onSearch,
+    this.onOpenHistory,
   });
 
   final HomeData data;
@@ -130,13 +134,18 @@ class _HomeBody extends StatelessWidget {
   final void Function(String)? onOpenStore;
   final VoidCallback? onOpenActiveOrder;
   final VoidCallback? onSearch;
+  final VoidCallback? onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
-          child: _AddressBar(address: data.address, onTap: onChangeAddress),
+          child: _AddressBar(
+            address: data.address,
+            onTap: onChangeAddress,
+            onOpenHistory: onOpenHistory,
+          ),
         ),
         SliverToBoxAdapter(child: _SearchBar(onTap: onSearch)),
 
@@ -196,9 +205,10 @@ class _HomeBody extends StatelessWidget {
 /* ------------------------------------------------------------------ */
 
 class _AddressBar extends StatelessWidget {
-  const _AddressBar({this.address, this.onTap});
+  const _AddressBar({this.address, this.onTap, this.onOpenHistory});
   final Address? address;
   final VoidCallback? onTap;
+  final VoidCallback? onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -238,6 +248,17 @@ class _AddressBar extends StatelessWidget {
               ),
             ),
             const Icon(Icons.keyboard_arrow_down, color: BesoncColors.inkMuted),
+            // Order history lives here rather than behind a nav drawer: the
+            // three reasons people open it — receipt, reorder, check a
+            // charge — are all urgent enough that two taps is one too many.
+            if (onOpenHistory != null)
+              IconButton(
+                key: const Key('open-history'),
+                icon: const Icon(Icons.receipt_long_outlined, size: 22),
+                color: BesoncColors.inkMuted,
+                tooltip: 'Your orders',
+                onPressed: onOpenHistory,
+              ),
           ],
         ),
       ),
