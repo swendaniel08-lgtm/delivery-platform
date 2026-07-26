@@ -1,6 +1,6 @@
 # What's Left — honest status
 
-**Date:** 2026-07-26 · Measured this session, not recalled.
+**Date:** 2026-07-26 (later) · Measured this session, not recalled.
 
 Everything below was re-checked by running it. Where a previous version of
 this file was optimistic or simply out of date, it has been corrected —
@@ -14,7 +14,7 @@ media-svc as unbuilt long after they were working.
 | Area | Measured | Status |
 |---|---|---|
 | Backend + shared libs | ~31,600 lines TS | ✅ Thorough, well-tested |
-| Tests | **1,472 green** (868 TS unit + 154 integration + **34 full-platform e2e** + 416 Dart) | ✅ Real, all re-run today |
+| Tests | **1,627 green** (868 TS unit + 204 integration + **34 full-platform e2e** + 521 Dart) | ✅ Real, all re-run today |
 | **Full-platform e2e** | 11 real services + real PostGIS; customer, vendor AND rider paths | ✅ `make test-platform` — 34/34 |
 | SQL migrations | 9 services | ✅ Constraints enforce the invariants |
 | **Runnable processes** | **15/15 boot healthy** | ✅ `make run` |
@@ -41,12 +41,13 @@ foundations are not in question; the screen count is.
 
 | App | Works today | Missing |
 |---|---|---|
-| **Customer** | browse → store → cart → checkout → live tracking | map widget, order history, address map picker, chat UI, wallet, prescription upload, shopping-list builder, errand + parcel forms |
-| **Rider** | full job flow, proof-of-delivery capture and upload | map/navigation hand-off, COD remittance screen, earnings, chat |
+| **Customer** | browse → store → cart → checkout → live tracking **+ live map + chat** | order history, address map picker, wallet, prescription upload, shopping-list builder, errand + parcel forms |
+| **Rider** | full job flow, proof-of-delivery capture and upload, **chat** | navigation hand-off, COD remittance screen, earnings |
 | **Vendor** | order queue, menu management | KYC onboarding, operating hours, earnings, payout request |
 
-`google_maps_flutter` is still not a dependency — tracking renders as a
-progress trail, not a map. That is the most visible gap to a pilot user.
+The map is real but is drawn on a Canvas, not `google_maps_flutter` — see the
+note in `besonc_tracking`. `MapTileSource` is the one interface to implement
+when the Maps key arrives; nothing above it changes.
 
 ### 2. Repository layers still in memory 🟡
 
@@ -56,10 +57,10 @@ admin. These still lose their state on restart:
 - **dispatch** — claim store falls back to memory without Redis (it *does*
   use Redis when `REDIS_URL` is set, which is what prevents the double-accept
   race; the fallback is dev-only and warns at boot)
-- **tracking** — location pings
-- **messaging** — chat history (dedupe is now Redis-backed; see below)
+- **dispatch** — see the note above; Redis-backed when configured
 
-**Fixed this session:** notification dedupe was per-process, so two replicas
+**Fixed:** tracking pings and chat history now persist to Postgres.
+Notification dedupe was per-process, so two replicas
 each treated the same outbox event as new and the customer received two texts
 that we paid for twice. It is now Redis-backed and shared, verified with two
 dispatchers against one real Redis, and production refuses to start without
@@ -104,9 +105,9 @@ not against feature-completeness.
 | Service plumbing / transport | ~90% |
 | Third-party integration code | ~95% (verification ~20%) |
 | Admin dashboard | ~55% |
-| **Mobile apps** | **~45%** |
+| **Mobile apps** | **~58%** |
 | Ops, CI/CD, infrastructure | ~40% |
-| **Overall** | **~78%** |
+| **Overall** | **~82%** |
 
 The parts where mistakes are expensive and hard to undo — money handling,
 state machines, the ledger, race conditions — are done and tested. What is
@@ -122,10 +123,10 @@ dependency that has not been started, and no amount of engineering shortens it.
 
 1. **Live-key verification.** Start Hubtel sender-ID approval *today*; run the
    Paystack sandbox. This is where integration surprises live.
-2. **Map widget in the customer and rider apps.** The most visible gap.
-3. **Remaining repository layers** (tracking, messaging chat history).
-4. **k6 load test**, then fraud controls, then security review.
-5. **Pilot.**
+2. **Order history and the address map picker** — the last two screens a
+   pilot customer will notice missing.
+3. **k6 load test**, then fraud controls, then security review.
+4. **Pilot.**
 
 ---
 
