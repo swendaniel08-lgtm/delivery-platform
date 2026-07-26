@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import {
   ConfigError, required, optional, numberFrom, boolFrom, secret, redact,
   stageFrom, hubtelFrom, arkeselFrom, smsConfigFrom, paystackFrom, mapsFrom,
-  jwtFrom, describeConfig,
+  jwtFrom, s3From, describeConfig,
 } from '../src/config/env.ts';
 
 const prod = (over: Record<string, string> = {}) => ({ NODE_ENV: 'production', ...over });
@@ -234,6 +234,80 @@ describe('Maps', () => {
 
   test('production requires one', () => {
     assert.throws(() => mapsFrom(prod()), ConfigError);
+  });
+});
+
+describe('object storage', () => {
+  const S3 = {
+    S3_ENDPOINT: 'https://s3.eu-west-1.amazonaws.com',
+    S3_ACCESS_KEY: 'AKIA123',
+    S3_SECRET_KEY: 'secret123',
+  };
+
+  test('development may run without storage', () => {
+    assert.equal(s3From(dev()), null);
+  });
+
+  test('production refuses to start without it', () => {
+    // Uploads would be silently discarded: no proof of delivery, no KYC.
+    assert.throws(() => s3From(prod()), ConfigError);
+  });
+
+  test('a half-configured bucket fails at BOOT, not at the first upload', () => {
+    assert.throws(() => s3From(dev({ S3_ENDPOINT: 'https://s3.example.com' })), ConfigError);
+    assert.throws(
+      () => s3From(dev({ S3_ENDPOINT: 'https://s3.example.com', S3_ACCESS_KEY: 'a' })),
+      ConfigError,
+    );
+  });
+
+  test('rejects a malformed endpoint', () => {
+    assert.throws(() => s3From(dev({ ...S3, S3_ENDPOINT: 'not-a-url' })), /valid URL/);
+  });
+
+  test('rejects plain http in production', () => {
+    // The signature travels in the query string; http would put it in clear.
+    assert.throws(
+      () => s3From(prod({ ...S3, S3_ENDPOINT: 'http://s3.example.com' })),
+      /https/,
+    );
+  });
+
+  test('http is allowed in development (MinIO)', () => {
+    const cfg = s3From(dev({ ...S3, S3_ENDPOINT: 'http://localhost:9000' }));
+    assert.equal(cfg?.endpoint, 'http://localhost:9000');
+  });
+
+  test('sensible defaults for bucket and region', () => {
+    const cfg = s3From(dev(S3))!;
+    assert.equal(cfg.bucket, 'besonc-media');
+    assert.equal(cfg.region, 'auto');
+    assert.equal(cfg.forcePathStyle, undefined, 'unset means "let the adapter detect"');
+    assert.equal(cfg.publicBaseUrl, null);
+  });
+
+  test('path-style is a tri-state, not a boolean', () => {
+    // undefined must stay undefined so the adapter can auto-detect localhost;
+    // collapsing it to `false` breaks every MinIO setup.
+    assert.equal(s3From(dev({ ...S3, S3_FORCE_PATH_STYLE: 'true' }))?.forcePathStyle, true);
+    assert.equal(s3From(dev({ ...S3, S3_FORCE_PATH_STYLE: 'false' }))?.forcePathStyle, false);
+    assert.equal(s3From(dev(S3))?.forcePathStyle, undefined);
+  });
+
+  test('the banner says loudly when uploads are being discarded', () => {
+    assert.match(describeConfig('svc-media', dev()).join('\n'), /uploads are DISCARDED/);
+  });
+
+  test('the banner names the bucket when storage is real', () => {
+    const lines = describeConfig('svc-media', dev(S3)).join('\n');
+    assert.match(lines, /storage=s3\(s3\.eu-west-1\.amazonaws\.com\/besonc-media\)/);
+  });
+
+  test('the banner NEVER prints the S3 secret key', () => {
+    const lines = describeConfig('svc-media', dev({
+      ...S3, S3_SECRET_KEY: 'wJalrXUtnFEMIsupersecretvalue',
+    })).join('\n');
+    assert.ok(!lines.includes('supersecretvalue'));
   });
 });
 

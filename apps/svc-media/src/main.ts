@@ -15,12 +15,13 @@ import {
   createService, installShutdownHandlers, portFor,
 } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  infraFrom, jwtFrom, optionalOrNull, describeConfig, ConfigError,
-  isProduction, numberFrom,
+  infraFrom, jwtFrom, s3From, describeConfig, ConfigError,
+  numberFrom, isProduction,
 } from '../../../libs/platform/src/config/env.ts';
 import { verifyAccessToken } from '../../../libs/platform/src/auth/verify.ts';
 import { MediaHttpModule } from './http.ts';
-import { InMemoryStorage } from './media.ts';
+import { InMemoryStorage, type StoragePort } from './media.ts';
+import { S3Storage } from './storage/s3.ts';
 
 const NAME = 'svc-media';
 
@@ -30,17 +31,49 @@ async function main() {
   const infra = infraFrom();
   const jwt = jwtFrom();
 
-  const s3Endpoint = optionalOrNull('S3_ENDPOINT');
-  if (!s3Endpoint) {
-    if (isProduction()) {
+  // s3From() throws in production when storage is absent or half-configured,
+  // so this branch can only be taken on a developer's machine.
+  const s3 = s3From();
+  let storage: StoragePort;
+  if (s3) {
+    storage = new S3Storage({
+      endpoint: s3.endpoint,
+      bucket: s3.bucket,
+      accessKeyId: s3.accessKeyId,
+      secretAccessKey: s3.secretAccessKey,
+      region: s3.region,
+      ...(s3.forcePathStyle === undefined ? {} : { forcePathStyle: s3.forcePathStyle }),
+      ...(s3.publicBaseUrl ? { publicBaseUrl: s3.publicBaseUrl } : {}),
+    });
+    // PREFLIGHT. A service that boots healthy against a bucket that does not
+    // exist fails as a 404 on a rider's phone at the end of a delivery. Find
+    // out here instead, where the log is being read.
+    const store = storage as S3Storage;
+    const exists = await store.bucketExists().catch((e: Error) => {
       throw new ConfigError(
-        'S3_ENDPOINT is required. Without object storage, KYC documents and '
-        + 'proof-of-delivery photos have nowhere to live — and a delivery '
-        + 'dispute with no photo is unarguable.',
+        `object storage is unreachable: ${e.message}. Check S3_ENDPOINT, the `
+        + 'credentials, and S3_FORCE_PATH_STYLE (MinIO and most self-hosted '
+        + 'gateways need it true).',
       );
+    });
+    if (!exists) {
+      if (isProduction()) {
+        // Auto-creating in production would make a typo in S3_BUCKET silently
+        // succeed into an empty bucket with no lifecycle or access policy.
+        throw new ConfigError(
+          `bucket "${s3.bucket}" does not exist at ${new URL(s3.endpoint).host}. `
+          + 'Create it with its retention and block-public-access policies before '
+          + 'starting; media-svc will not create production buckets itself.',
+        );
+      }
+      await store.ensureBucket();
+      console.warn(`[${NAME}] created missing dev bucket "${s3.bucket}"`);
     }
+    console.log(`[${NAME}] object storage OK: ${s3.bucket} @ ${new URL(s3.endpoint).host}`);
+  } else {
+    storage = new InMemoryStorage();
     console.warn(`[${NAME}] WARNING: no S3_ENDPOINT — using in-memory storage. `
-      + 'Uploaded objects are discarded.');
+      + 'Uploaded objects are DISCARDED. Proof of delivery will not survive.');
   }
 
   let pool: Pool | null = null;
@@ -62,9 +95,7 @@ async function main() {
     ...(pool ? { pool } : {}),
     module: MediaHttpModule.forRoot({
       pool,
-      // The real S3 adapter lands with the storage credentials; the port is
-      // already defined so swapping it is a one-line change here.
-      storage: new InMemoryStorage(),
+      storage,
       verifyToken: (token) => verifyAccessToken(token, jwt.accessSecret),
     }),
   });

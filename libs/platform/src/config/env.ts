@@ -244,6 +244,68 @@ export function paystackFrom(env: Env = process.env): PaystackEnv | null {
   };
 }
 
+export interface S3Env {
+  endpoint: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  forcePathStyle: boolean | undefined;
+  publicBaseUrl: string | null;
+}
+
+/**
+ * Object storage.
+ *
+ * Returns null in development, where media-svc falls back to in-memory
+ * storage and DISCARDS every upload. That is fine for a laptop and
+ * catastrophic in production: a delivery dispute with no proof photo is
+ * unarguable, and KYC we cannot produce on request is a regulatory problem.
+ * Hence the hard failure below.
+ */
+export function s3From(env: Env = process.env): S3Env | null {
+  const endpoint = optionalOrNull('S3_ENDPOINT', env);
+  if (!endpoint) {
+    if (isProduction(env)) {
+      throw new ConfigError(
+        'S3_ENDPOINT is required in production. Without object storage, '
+        + 'proof-of-delivery photos and KYC documents are silently discarded.',
+      );
+    }
+    return null;
+  }
+
+  const accessKeyId = optionalOrNull('S3_ACCESS_KEY', env);
+  const secretAccessKey = optionalOrNull('S3_SECRET_KEY', env);
+  if (!accessKeyId || !secretAccessKey) {
+    throw new ConfigError(
+      'S3_ENDPOINT is set but S3_ACCESS_KEY / S3_SECRET_KEY are not. '
+      + 'A half-configured bucket fails at the first rider upload, not at boot.',
+    );
+  }
+
+  try { new URL(endpoint); }
+  catch { throw new ConfigError(`S3_ENDPOINT is not a valid URL: ${endpoint}`); }
+
+  if (isProduction(env) && endpoint.startsWith('http://')) {
+    throw new ConfigError(
+      'S3_ENDPOINT must use https in production — presigned URLs carry the '
+      + 'signature in the query string and would travel in clear text.',
+    );
+  }
+
+  const rawPathStyle = optionalOrNull('S3_FORCE_PATH_STYLE', env);
+  return {
+    endpoint,
+    bucket: optional('S3_BUCKET', 'besonc-media', env),
+    accessKeyId,
+    secretAccessKey,
+    region: optional('S3_REGION', 'auto', env),
+    forcePathStyle: rawPathStyle === null ? undefined : /^(1|true|yes)$/i.test(rawPathStyle),
+    publicBaseUrl: optionalOrNull('S3_PUBLIC_BASE_URL', env),
+  };
+}
+
 export interface MapsEnv { serverKey: string }
 
 export function mapsFrom(env: Env = process.env): MapsEnv | null {
@@ -344,6 +406,17 @@ export function describeConfig(name: string, env: Env = process.env): string[] {
 
   const maps = optionalOrNull('GOOGLE_MAPS_SERVER_KEY', env);
   lines.push(`[${name}] maps=${maps ? redact(maps) : 'NOT CONFIGURED (haversine fallback)'}`);
+
+  try {
+    const s3 = s3From(env);
+    lines.push(
+      `[${name}] storage=${s3
+        ? `s3(${new URL(s3.endpoint).host}/${s3.bucket})`
+        : 'IN-MEMORY — uploads are DISCARDED, no proof of delivery survives'}`,
+    );
+  } catch (e) {
+    lines.push(`[${name}] storage=MISCONFIGURED: ${(e as Error).message}`);
+  }
 
   return lines;
 }

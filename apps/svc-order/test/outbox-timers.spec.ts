@@ -18,7 +18,14 @@ let dbUp = false;
 
 before(async () => {
   try {
-    pool = new pg.Pool({ connectionString: DSN, connectionTimeoutMillis: 3000 });
+    // 3s was too tight: when the whole integration harness starts eight
+    // containers at once on a small box, Postgres accepts connections several
+    // seconds later than it answers pg_isready, and this spec failed
+    // intermittently with a connection timeout that looked like a logic bug.
+    pool = new pg.Pool({
+      connectionString: DSN,
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 15_000),
+    });
     await pool.query('SELECT 1');
     await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
     await pool.query(readFileSync(join(process.cwd(), 'apps/svc-order/migrations/001_orders.sql'), 'utf8'));

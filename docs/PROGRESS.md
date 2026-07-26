@@ -777,3 +777,30 @@ Paystack's sandbox — see "Verification pending" below.*
 | Paystack live keys | Sprint 17 | ⬜ |
 | Hosting decision | Sprint 1 | ⬜ default: DigitalOcean DOKS |
 | Team size | Sprint 1 | ⬜ default: 15 deployables |
+
+## Session: real object storage (S3/R2/MinIO)
+
+media-svc no longer discards uploads. A rider's proof-of-delivery photo now
+lands in a real bucket and can be read back months later for a dispute.
+
+- `apps/svc-media/src/storage/s3.ts` — SigV4 presigning, no AWS SDK.
+  Portable across S3, R2, B2, Spaces, Wasabi and MinIO.
+- Boot-time preflight: media-svc refuses to report healthy against a bucket
+  it cannot reach. Production will not auto-create a bucket (a typo in
+  S3_BUCKET must not silently succeed into a policy-less bucket).
+- `s3From()` in libs/platform config, with the production guardrails:
+  required, no plain http, no half-configured credentials.
+- MinIO added to compose and to the integration harness; `make s3-up` for dev.
+
+**Bugs this found that unit tests could not:**
+- `head()` signed a GET but sent a HEAD. The method is part of the canonical
+  request, so S3 answered 403 and we reported "file missing" — every
+  proof-of-delivery verification would have come back empty.
+- media-svc booted healthy against a non-existent bucket; the first upload
+  404'd at the rider's phone at the end of a delivery.
+- The integration harness judged a spec only by its TAP summary, so a crash
+  after the last assertion passed silently. It now also checks the exit code.
+- `outbox-timers.spec` used a 3s pg connect timeout that flaked whenever the
+  harness started eight containers at once.
+
+Specs: 812 TS unit (+39), 146 TS integration (+13), 450 Dart.

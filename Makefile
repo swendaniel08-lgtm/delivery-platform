@@ -15,7 +15,7 @@ DOCKER := $(shell if docker info >/dev/null 2>&1; then echo docker; else echo "s
 COMPOSE := $(DOCKER) compose --env-file .env -f $(COMPOSE_FILE)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup env test test-db test-mobile test-platform test-all run stop status logs \
+.PHONY: help setup env test test-db s3-up s3-down test-mobile test-platform test-all run stop status logs \
         build up down ps migrate clean
 
 help: ## Show this help
@@ -39,6 +39,16 @@ test: ## Unit specs (no containers, ~45s)
 
 test-db: ## Integration specs (spins Postgres/Redis/RabbitMQ)
 	bash infra/scripts/test-db.sh
+
+s3-up: ## Start a local MinIO for media-svc (real presigned uploads in dev)
+	@$(DOCKER) rm -f besonc-minio >/dev/null 2>&1 || true
+	@$(DOCKER) run -d --name besonc-minio -p 9000:9000 -p 9001:9001 \
+	  -e MINIO_ROOT_USER=besonc -e MINIO_ROOT_PASSWORD=besonc_dev_secret \
+	  minio/minio:latest server /data --console-address ":9001" >/dev/null
+	@echo "MinIO on http://127.0.0.1:9000 (console :9001, besonc / besonc_dev_secret)"
+
+s3-down: ## Stop the local MinIO
+	@$(DOCKER) rm -f besonc-minio >/dev/null 2>&1 || true
 
 test-mobile: ## Dart and Flutter specs
 	bash infra/scripts/test-mobile.sh
