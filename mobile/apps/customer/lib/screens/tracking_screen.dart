@@ -14,6 +14,8 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:besonc_ui/besonc_ui.dart';
+import 'package:besonc_models/besonc_models.dart' show LatLng;
+import 'package:besonc_tracking/besonc_tracking.dart';
 
 // Prefixed: Flutter's material library exports its own `ConnectionState`,
 // and an ambiguous import is a confusing failure to debug.
@@ -25,6 +27,8 @@ class TrackingScreen extends StatelessWidget {
     super.key,
     required this.controller,
     required this.humanRef,
+    this.destination,
+    this.pickup,
     this.onCall,
     this.onChat,
     this.onCancel,
@@ -33,6 +37,15 @@ class TrackingScreen extends StatelessWidget {
 
   final TrackingController controller;
   final String humanRef;
+
+  /// The customer's delivery pin. Null only in older call sites; without it
+  /// the map cannot be drawn and the screen falls back to the progress trail
+  /// alone — which is a legitimate view, not a broken one.
+  final LatLng? destination;
+
+  /// The vendor, shown while the rider is still collecting.
+  final LatLng? pickup;
+
   final VoidCallback? onCall;
   final VoidCallback? onChat;
   final VoidCallback? onCancel;
@@ -59,6 +72,31 @@ class TrackingScreen extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: BesoncSpace.xxl),
             children: [
               _StatusHeader(controller: controller),
+
+              // The map goes BELOW the status header, deliberately. When the
+              // rider is still at the vendor the answer is "Being prepared",
+              // not a stationary dot; showMap is false until there is
+              // genuinely something moving to look at.
+              if (controller.showMap && destination != null) ...[
+                const SizedBox(height: BesoncSpace.md),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: BesoncSpace.md),
+                  child: DeliveryMap(
+                    key: const Key('tracking-map'),
+                    rider: controller.rider?.position,
+                    destination: destination!,
+                    pickup: pickup,
+                    etaSeconds: controller.rider?.etaSeconds,
+                    // Passed straight through from the controller, which is
+                    // the single place staleness is decided. Re-deriving it
+                    // here is how the map and the header end up disagreeing.
+                    isStale: controller.positionIsStale,
+                    isVeryStale: controller.positionIsVeryStale,
+                    riderLabel: controller.riderName,
+                  ),
+                ),
+              ],
+
               const SizedBox(height: BesoncSpace.md),
               _ProgressTrail(controller: controller),
 
@@ -157,6 +195,7 @@ class _StatusHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
@@ -165,12 +204,26 @@ class _StatusHeader extends StatelessWidget {
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
               ),
+              const SizedBox(width: BesoncSpace.sm),
               // Honest badge. It reads "Live" only when the last fix is
               // genuinely recent — the controller decides, not the UI.
-              BesoncBadge(
-                controller.connectionLabel,
-                key: const Key('connection-badge'),
-                tone: live ? BesoncTone.success : BesoncTone.warning,
+              //
+              // Bounded to half the width: the badge text is not a fixed
+              // string. "Live" fits anywhere, but "Last seen 12 min ago"
+              // beside a long state label overflowed 360dp by 21px. The
+              // honest labels are precisely the long ones, so the failure
+              // only appeared when something had actually gone wrong.
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width * 0.5,
+                  ),
+                  child: BesoncBadge(
+                    controller.connectionLabel,
+                    key: const Key('connection-badge'),
+                    tone: live ? BesoncTone.success : BesoncTone.warning,
+                  ),
+                ),
               ),
             ],
           ),

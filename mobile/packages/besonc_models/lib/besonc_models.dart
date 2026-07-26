@@ -252,6 +252,8 @@ class ActiveOrder {
     this.storeName,
     this.riderName,
     this.etaMinutes,
+    this.dropoff,
+    this.pickup,
   });
 
   final String id;
@@ -263,6 +265,14 @@ class ActiveOrder {
   final String? riderName;
   final int? etaMinutes;
 
+  /// Where the order is going. Null when the upstream had no pin — the
+  /// tracking screen then falls back to the progress trail, which is a
+  /// legitimate view rather than a broken one.
+  final LatLng? dropoff;
+
+  /// The vendor, shown while the rider is still collecting.
+  final LatLng? pickup;
+
   factory ActiveOrder.fromJson(Map<String, dynamic> j) => ActiveOrder(
         id: j['id'] as String,
         humanRef: j['humanRef'] as String,
@@ -272,6 +282,12 @@ class ActiveOrder {
         storeName: j['storeName'] as String?,
         riderName: j['riderName'] as String?,
         etaMinutes: j['etaMinutes'] as int?,
+        dropoff: j['dropoff'] == null
+            ? null
+            : LatLng.fromJson(j['dropoff'] as Map<String, dynamic>),
+        pickup: j['pickup'] == null
+            ? null
+            : LatLng.fromJson(j['pickup'] as Map<String, dynamic>),
       );
 
   /// The sticky bar on the home screen.

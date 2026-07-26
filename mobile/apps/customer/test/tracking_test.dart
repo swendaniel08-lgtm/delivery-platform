@@ -295,6 +295,108 @@ void main() {
     TrackingController at(OrderState state, {DateTime Function()? clock}) =>
         TrackingController(orderId: 'o1', initialState: state, clock: clock);
 
+    /* -------------------------------------------------------------- */
+    /* The live map                                                    */
+    /* -------------------------------------------------------------- */
+
+    const osu = LatLng(5.5560, -0.1821);
+    const accraMall = LatLng(5.6206, -0.1730);
+
+    testWidgets('NO map while the food is still being cooked', (t) async {
+      // A stationary dot at the vendor answers nothing. "Being prepared" is
+      // the answer at this stage, and the map would only be noise.
+      final c = at(OrderState.preparing)..onConnected();
+      await pump(t, TrackingScreen(
+        controller: c, humanRef: 'BSC-1', destination: accraMall,
+      ));
+      expect(find.byKey(const Key('tracking-map')), findsNothing);
+    });
+
+    testWidgets('the map appears once the rider is genuinely moving',
+        (t) async {
+      final c = at(OrderState.inTransit)
+        ..onConnected()
+        ..onPosition(osu, etaSeconds: 480);
+      await pump(t, TrackingScreen(
+        controller: c, humanRef: 'BSC-1', destination: accraMall,
+      ));
+      expect(find.byKey(const Key('tracking-map')), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('no destination pin means no map, not a broken one',
+        (t) async {
+      // Older orders and upstreams without a pin must degrade to the
+      // progress trail rather than rendering a map to nowhere.
+      final c = at(OrderState.inTransit)
+        ..onConnected()
+        ..onPosition(osu);
+      await pump(t, TrackingScreen(controller: c, humanRef: 'BSC-1'));
+      expect(find.byKey(const Key('tracking-map')), findsNothing);
+      expect(find.byKey(const Key('step-0')), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('the map and the header agree about staleness', (t) async {
+      // If the header says "last seen 4 min ago" while the map shows a
+      // confident live dot, the customer believes the map and goes to the
+      // gate too early. Both must read from the same controller.
+      var now = DateTime(2026, 7, 26, 12);
+      final c = TrackingController(
+        orderId: 'o1', initialState: OrderState.inTransit, clock: () => now,
+      )
+        ..onConnected()
+        ..onPosition(osu);
+
+      now = now.add(const Duration(minutes: 5));
+      await pump(t, TrackingScreen(
+        controller: c, humanRef: 'BSC-1', destination: accraMall,
+      ));
+
+      expect(c.positionIsVeryStale, isTrue);
+      expect(find.byKey(const Key('map-position-lost')), findsOneWidget);
+      expect(find.byKey(const Key('map-distance')), findsNothing);
+    });
+
+    testWidgets('the map does not overflow at 360dp', (t) async {
+      final c = at(OrderState.inTransit)
+        ..onConnected()
+        ..onPosition(osu, etaSeconds: 900);
+      await pump(t, TrackingScreen(
+        controller: c, humanRef: 'BSC-1',
+        destination: accraMall, pickup: osu,
+      ));
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('shows a pickup pin before collection', (t) async {
+      final c = at(OrderState.pickedUp)
+        ..onConnected()
+        ..onPosition(osu, etaSeconds: 600);
+      await pump(t, TrackingScreen(
+        controller: c, humanRef: 'BSC-1',
+        destination: accraMall, pickup: osu,
+      ));
+      expect(find.byKey(const Key('tracking-map')), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('the map disappears when the order completes', (t) async {
+      // A delivered order has nothing to track, and a lingering map implies
+      // the rider is still coming.
+      final c = at(OrderState.inTransit)
+        ..onConnected()
+        ..onPosition(osu);
+      await pump(t, TrackingScreen(
+        controller: c, humanRef: 'BSC-1', destination: accraMall,
+      ));
+      expect(find.byKey(const Key('tracking-map')), findsOneWidget);
+
+      c.onStateChanged(OrderState.delivered);
+      await t.pump();
+      expect(find.byKey(const Key('tracking-map')), findsNothing);
+    });
+
     testWidgets('shows the state, the trail and the reference', (t) async {
       final c = at(OrderState.preparing)..onConnected();
       await pump(t, TrackingScreen(controller: c, humanRef: 'BSC-4821'));

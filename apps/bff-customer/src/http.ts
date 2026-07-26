@@ -473,7 +473,24 @@ function activeOrder(o: any) {
     storeName: o.storeName ?? null,
     riderName: o.riderName ?? null,
     ...(o.etaMinutes !== undefined ? { etaMinutes: o.etaMinutes } : {}),
+    // The map needs a destination. Without it the tracking screen can show a
+    // rider moving and no indication of where they are moving TO, which is
+    // the one thing the customer is actually asking.
+    ...(latLng(o.dropoff ?? o.deliveryAddress) ? { dropoff: latLng(o.dropoff ?? o.deliveryAddress) } : {}),
+    ...(latLng(o.pickup ?? o.storePosition) ? { pickup: latLng(o.pickup ?? o.storePosition) } : {}),
   };
+}
+
+/** Normalises the several shapes upstreams use for a coordinate pair. */
+function latLng(v: any): { lat: number; lng: number } | null {
+  if (!v) return null;
+  const lat = Number(v.lat ?? v.latitude);
+  const lng = Number(v.lng ?? v.longitude);
+  // A missing pin must be omitted, not sent as (0,0) — null island is in the
+  // Atlantic and would draw an Accra delivery 600km out to sea.
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
+  return { lat, lng };
 }
 
 /** Matches `MenuItem.fromJson` in vendor_screen.dart. */

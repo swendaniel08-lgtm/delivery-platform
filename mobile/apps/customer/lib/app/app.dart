@@ -492,6 +492,8 @@ class _TrackingPageState extends State<TrackingPage> {
   Widget build(BuildContext context) => TrackingScreen(
         controller: _tracking,
         humanRef: widget.order.humanRef,
+        destination: widget.order.dropoff,
+        pickup: widget.order.pickup,
         onClose: () => Navigator.of(context).pop(),
         onCall: () => _notReady(context, 'Calling your rider'),
         onChat: () => _notReady(context, 'Chat'),

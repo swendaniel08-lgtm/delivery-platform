@@ -930,3 +930,42 @@ matters after the fact, and both lost it on every redeploy.
   Postgres 42P08. Caught only by running the SQL.
 
 Specs: 868 TS unit, **204 integration (+50)**, 34 platform e2e, 416 Dart.
+
+## Session: live delivery map
+
+`besonc_tracking` was a stub containing a `Calculator` class. It is now the
+live delivery map, and the customer tracking screen draws it.
+
+**Deliberately NOT `google_maps_flutter`.** The Maps SDK bills per screen
+load — a customer who opens tracking eleven times while waiting is eleven
+billable loads — adds ~8MB to the APK, and needs a platform key plus a native
+build before it can even be exercised. All the geometry, projection, camera
+and staleness handling live behind `DeliveryMap`, drawn on a Canvas.
+`MapTileSource` is the single seam: when the Maps key arrives, implement it
+and nothing above changes, including every test.
+
+What a customer at a gate needs is where the rider is, which way they are
+moving, how far, and whether the dot is real. Tile photography is not on
+that list.
+
+- Equirectangular projection with cosine correction on longitude, clamped
+  zoom, invertible (`toLatLng` is needed the moment the map accepts a tap).
+- Straight-line route, drawn dashed — we have no polyline without Directions,
+  and a curved "road" would imply knowledge we do not have.
+- Distance and ETA are rounded hard and prefixed "about". ETA never counts
+  down to zero while someone is standing at a gate.
+- A stale position renders hollow and grey; a very stale one says the rider's
+  phone is offline. The map reads staleness from the controller so it cannot
+  disagree with the header.
+
+**Bug found:** `_StatusHeader` overflowed 360dp by 21px — but only when the
+connection badge held a long honest label like "Last seen 12 min ago". The
+short happy-path string "Live" always fitted, so the overflow appeared
+exactly when something had already gone wrong. Fixed in `BesoncBadge` itself
+(Flexible + ellipsis), so every badge in all three apps is now safe.
+
+Also plumbed the destination pin end to end: bff-customer now emits
+`dropoff`/`pickup`, with a guard that omits a missing pin rather than sending
+(0,0) — null island is in the Atlantic, 600km from Accra.
+
+Specs: 868 TS unit, 204 integration, 34 platform e2e, **489 Dart (+73)**.

@@ -235,9 +235,17 @@ class BesoncBadge extends StatelessWidget {
             Icon(icon, size: 13, color: _fg),
             const SizedBox(width: 4),
           ],
-          Text(
-            text,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _fg),
+          // Flexible + ellipsis, because badge text is not always short.
+          // "Live" fits anywhere; "Last seen 12 min ago" beside a long state
+          // label overflowed a 360dp phone. Fixing it here rather than at
+          // each call site means every badge in all three apps is safe.
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _fg),
+            ),
           ),
         ],
       ),
