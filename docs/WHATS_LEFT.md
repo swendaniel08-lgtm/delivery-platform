@@ -9,11 +9,12 @@
 | Area | Measured | Status |
 |---|---|---|
 | Backend + shared libs | ~61,000 lines TS | ✅ Thorough, well-tested |
-| Tests | **1,340 specs green** (746 TS unit + 133 integration + **34 full-platform** + 427 Dart) | ✅ Real |
+| Tests | **1,390 specs green** (773 TS unit + 133 integration + **34 full-platform** + 450 Dart) | ✅ Real |
 | **Full-platform e2e** | 11 real services + PostGIS; customer, vendor AND rider verified | ✅ `make test-platform` |
 | SQL migrations | 9 services | ✅ Constraints enforce invariants |
 | Admin dashboard | Next.js 16, 4 routes, builds & serves | 🟡 Renders **stubbed data** |
-| **Flutter apps** | ~14,500 lines Dart | 🟡 Customer: browse→cart→checkout. Rider: **can complete a delivery**. Vendor: queue + menu |
+| **Flutter apps** | ~15,500 lines Dart | 🟡 Customer: browse→cart→checkout→**live tracking**. Rider: can complete a delivery. Vendor: queue + menu |
+| Third-party clients | Hubtel, Paystack, Google Maps all REAL and wired | 🟡 Never yet run against live keys |
 | Shared Dart packages | models, api, ui, auth real; 4 still stubs | 🟡 Partly built |
 | HTTP surface | **all 10 services + 4 BFFs + gateway** | ✅ Complete |
 | **Runnable processes** | **15/15 boot healthy on real Postgres** | ✅ `make run` |

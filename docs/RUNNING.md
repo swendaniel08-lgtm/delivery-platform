@@ -93,7 +93,29 @@ bash infra/scripts/run-stack.sh   # picks .env up automatically
 | `REDIS_URL` | OTP limits are per-process; dispatch cannot arbitrate between replicas | Correct with >1 replica |
 | `HUBTEL_*` | OTP codes are logged, never sent | Real SMS to real phones |
 | `PAYSTACK_SECRET_KEY` | The webhook route is **not mounted** | Payments can be confirmed |
-| `GOOGLE_MAPS_SERVER_KEY` | Straight-line distance × 1.4 | Real routed distances and ETAs |
+| `GOOGLE_MAPS_SERVER_KEY` | Straight-line × 1.4 (errs high, never undercharges) | Real routed, traffic-aware distances |
+
+### What "real" means per integration
+
+| Integration | Status |
+|---|---|
+| **Hubtel SMS** | Real client. OTP and notifications both send the moment the three vars are set. |
+| **Paystack** | Real client. Checkout initiates a momo charge; the signed webhook confirms it. A 201 is *not* a payment. |
+| **Google Maps** | Real client. Distance Matrix (traffic-aware), reverse geocoding, Ghana-restricted autocomplete. |
+| **Firebase push** | Port defined, adapter not written. Notifications fall back to SMS. |
+| **S3 / object storage** | Presigned-upload port defined; the S3 adapter is not written, so uploads are discarded in dev. |
+
+Verify each is live from the startup banner:
+
+```bash
+bash infra/scripts/run-stack.sh logs identity     | grep sms=
+bash infra/scripts/run-stack.sh logs payment      | grep -i paystack
+bash infra/scripts/run-stack.sh logs bff-customer | grep distances=
+```
+
+You want to see `sms=hubtel(sender=…)`, `Paystack webhook mounted (LIVE mode)`
+and `distances=google (routed)`. Anything saying STUB or *estimate* is not
+talking to the outside world.
 
 ### Generating JWT secrets
 
