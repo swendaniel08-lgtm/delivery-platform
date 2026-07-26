@@ -24,12 +24,16 @@ import {
   ServiceClient, settleWithFallback,
 } from '../../../libs/platform/src/http/service-client.ts';
 import { formatCedis } from '../../../libs/money/src/money.ts';
-import { haversineMetres } from '../../../libs/maps/src/geohash.ts';
+import {
+  haversineMetres, fallbackRoadDistanceMetres,
+} from '../../../libs/maps/src/geohash.ts';
+import type { MapsClient } from '../../../libs/maps/src/maps-client.ts';
 import { SERVICE_TILES, prepRange } from './bff.ts';
 
 export const UPSTREAMS = Symbol('CUSTOMER_UPSTREAMS');
 export const VERIFY_TOKEN = Symbol('CUSTOMER_VERIFY_TOKEN');
 export const FEATURE_FLAGS = Symbol('CUSTOMER_FEATURE_FLAGS');
+export const MAPS = Symbol('CUSTOMER_MAPS');
 
 export interface Claims { sub: string; role: string }
 export type VerifyToken = (token: string) => Claims;
@@ -65,7 +69,34 @@ export class CustomerBffController {
     @Inject(UPSTREAMS) private readonly up: CustomerUpstreams,
     @Inject(VERIFY_TOKEN) private readonly verify: VerifyToken,
     @Inject(FEATURE_FLAGS) private readonly flags: Record<string, boolean>,
+    @Inject(MAPS) private readonly maps: MapsClient | null,
   ) {}
+
+  /**
+   * Road distance between two points.
+   *
+   * Google when a key is configured, straight-line x1.4 otherwise. The
+   * fallback matters: a Maps outage must make the fee slightly wrong, never
+   * make checkout impossible. 1.4 is the usual winding factor for Accra's
+   * road grid and errs slightly HIGH, so an outage cannot accidentally
+   * undercharge for delivery.
+   */
+  private async roadDistance(
+    from: { lat: number; lng: number }, to: { lat: number; lng: number },
+  ): Promise<{ metres: number; source: 'google' | 'estimate' }> {
+    if (this.maps) {
+      try {
+        const route = await this.maps.route(from, to);
+        return { metres: route.distanceMetres, source: 'google' };
+      } catch {
+        // Fall through. Logged by MapsClient; not worth failing an order.
+      }
+    }
+    return {
+      metres: Math.round(fallbackRoadDistanceMetres(from, to)),
+      source: 'estimate',
+    };
+  }
 
   private claims(auth?: string): Claims {
     const token = bearer(auth);
@@ -264,10 +295,11 @@ export class CustomerBffController {
       throw new ValidationError({ addressId: ['Add a delivery address first'] });
     }
 
-    const distanceMetres = haversineMetres(
+    const distance = await this.roadDistance(
       { lat: store.store.latitude, lng: store.store.longitude },
       { lat: address.latitude, lng: address.longitude },
     );
+    const distanceMetres = distance.metres;
 
     const quote = await this.up.pricing.post('/pricing/quote', {
       service: store.store.serviceType ?? 'food',
@@ -291,6 +323,9 @@ export class CustomerBffController {
       codEligible: cod.eligible === true,
       ...(cod.reason ? { codReason: cod.reason } : {}),
       distanceMetres: Math.round(distanceMetres),
+      // Surfaced so support can tell a disputed fee computed from a real
+      // route apart from one estimated during a Maps outage.
+      distanceSource: distance.source,
     };
   }
 
@@ -448,6 +483,8 @@ export interface CustomerBffDeps {
   upstreams: CustomerUpstreams;
   verifyToken?: VerifyToken;
   featureFlags?: Record<string, boolean>;
+  /** Null falls back to a straight-line estimate. */
+  maps?: MapsClient | null;
 }
 
 @Module({})
@@ -466,6 +503,7 @@ export class CustomerBffHttpModule {
           }),
         },
         { provide: FEATURE_FLAGS, useValue: deps.featureFlags ?? {} },
+        { provide: MAPS, useValue: deps.maps ?? null },
       ],
     };
   }

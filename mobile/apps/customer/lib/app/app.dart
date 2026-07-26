@@ -16,11 +16,14 @@ import 'package:besonc_ui/besonc_ui.dart';
 import '../screens/cart_screen.dart';
 import '../screens/checkout_screen.dart';
 import '../screens/home_screen.dart';
+import '../screens/tracking_screen.dart';
 import '../screens/vendor_screen.dart';
 import '../state/cart_controller.dart';
 import '../state/checkout_controller.dart';
 import '../state/home_controller.dart';
 import '../state/shopping_flow.dart';
+import '../state/tracking_controller.dart';
+import '../state/tracking_session.dart';
 import 'environment.dart';
 
 /// Everything long-lived, in one object, reachable from any screen.
@@ -153,7 +156,10 @@ class _CustomerRootState extends State<CustomerRoot> {
             onChangeAddress: () => _notYet(context, 'Address picker'),
             onOpenService: (key) => _notYet(context, key),
             onOpenStore: (id) => _openStore(context, id),
-            onOpenActiveOrder: () => _notYet(context, 'Order tracking'),
+            onOpenActiveOrder: () {
+              final active = home.data?.activeOrder;
+              if (active != null) _openTracking(context, deps, active);
+            },
           ),
         );
       },
@@ -161,6 +167,14 @@ class _CustomerRootState extends State<CustomerRoot> {
   }
 
   /* ---------------- navigation ---------------- */
+
+  void _openTracking(
+    BuildContext context, AppDependencies deps, ActiveOrder order,
+  ) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TrackingPage(deps: deps, order: order),
+    ));
+  }
 
   void _openStore(BuildContext context, String storeId) {
     final deps = BesoncScope.of(context);
@@ -427,6 +441,66 @@ class _CheckoutPageState extends State<CheckoutPage> {
         _flow.refreshQuote();
       },
       onDone: () => Navigator.of(context).popUntil((r) => r.isFirst),
+    );
+  }
+}
+
+
+/// Live tracking for one order.
+class TrackingPage extends StatefulWidget {
+  const TrackingPage({super.key, required this.deps, required this.order});
+
+  final AppDependencies deps;
+  final ActiveOrder order;
+
+  @override
+  State<TrackingPage> createState() => _TrackingPageState();
+}
+
+class _TrackingPageState extends State<TrackingPage> {
+  late final TrackingController _tracking = TrackingController(
+    orderId: widget.order.id,
+    initialState: widget.order.state,
+  );
+  late final TrackingSession _session = TrackingSession(
+    api: widget.deps.api, controller: _tracking,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _begin();
+  }
+
+  Future<void> _begin() async {
+    final token = await widget.deps.api.tokens.accessToken();
+    // A missing token means the session expired; the auth gate will take
+    // over on the next request, so there is nothing useful to do here.
+    if (token != null) await _session.start(token);
+  }
+
+  @override
+  void dispose() {
+    // Stop polling the moment the screen closes, or a backgrounded app
+    // quietly eats a customer's data bundle.
+    _session.stop();
+    _tracking.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TrackingScreen(
+        controller: _tracking,
+        humanRef: widget.order.humanRef,
+        onClose: () => Navigator.of(context).pop(),
+        onCall: () => _notReady(context, 'Calling your rider'),
+        onChat: () => _notReady(context, 'Chat'),
+        onCancel: () => _notReady(context, 'Cancelling'),
+      );
+
+  void _notReady(BuildContext context, String what) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$what is coming in the next build')),
     );
   }
 }

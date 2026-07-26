@@ -14,8 +14,10 @@ import {
   createService, installShutdownHandlers, portFor,
 } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  jwtFrom, optional, numberFrom, boolFrom, describeConfig, ConfigError,
+  jwtFrom, optional, numberFrom, boolFrom, mapsFrom, describeConfig, ConfigError,
 } from '../../../libs/platform/src/config/env.ts';
+import { MapsClient, InMemoryCache } from '../../../libs/maps/src/maps-client.ts';
+import { GoogleMapsTransport } from '../../../libs/maps/src/google-transport.ts';
 import { ServiceClient } from '../../../libs/platform/src/http/service-client.ts';
 import { verifyAccessToken } from '../../../libs/platform/src/auth/verify.ts';
 import { CustomerBffHttpModule } from './http.ts';
@@ -36,12 +38,27 @@ async function main() {
     defaultTimeoutMs: timeoutMs,
   });
 
+  // Real routed distances when a key is present. MapsClient adds caching
+  // (geohash-6 pairs) and a daily budget on top, so a busy day cannot turn
+  // into a surprise Google bill.
+  const mapsKey = mapsFrom();
+  const maps = mapsKey
+    ? new MapsClient(
+        new GoogleMapsTransport({ apiKey: mapsKey.serverKey }),
+        new InMemoryCache(),
+        { dailyDirectionsBudget: numberFrom('MAPS_DAILY_BUDGET', 50_000) },
+      )
+    : null;
+
+  console.log(`[${NAME}] distances=${maps ? 'google (routed)' : 'straight-line estimate'}`);
+
   const svc = await createService({
     name: NAME,
     port: portFor(NAME),
     logger: true,
     module: CustomerBffHttpModule.forRoot({
       verifyToken: (token) => verifyAccessToken(token, jwt.accessSecret),
+      maps,
       featureFlags: {
         food: boolFrom('FEATURE_FOOD', true),
         parcel: boolFrom('FEATURE_PARCEL', true),
