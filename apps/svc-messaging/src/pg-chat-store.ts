@@ -148,7 +148,11 @@ export class PgChatStore implements ChatStore {
       [
         thread.id,
         msg.from,
-        msg.fromUserId ?? msg.from,
+        // No silent fallback to the party name: `from_user_id` is a uuid and
+        // a party name is not one. Failing loudly here is right — a
+        // transcript that cannot say which account sent a message is not
+        // evidence.
+        msg.fromUserId,
         msg.body ?? null,
         msg.imageUrl ?? null,
       ],

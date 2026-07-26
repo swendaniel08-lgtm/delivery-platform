@@ -1031,3 +1031,41 @@ still `NaN`, which reaches Postgres as the string "NaN" and 500s. Guarded.
 Mutation-tested: reverting the query to OFFSET turns the race spec red.
 
 Specs: 868 TS unit, **222 integration (+18)**, 34 platform e2e, **548 Dart (+27)**.
+
+## Session: e2e lanes, and a critical chat authorisation hole
+
+**The memory problem, finally measured.** Each tsx service holds ~230MB
+resident — the esbuild compiler and Node binary, NOT V8 old-space, so
+`--max-old-space-size` does not shrink it (160MB just starves the compiler
+until it dies; that was my earlier failed "fix"). Twelve services is ~2.7GB
+against a ~2GB box. The OOM killer took services AFTER they reported healthy,
+surfacing as unrelated 503s elsewhere. The suite now runs in three lanes —
+core, vendor, rider — booting eight services each. Same 34 assertions, and it
+went from ~1-in-3 clean to 3/3.
+
+**CRITICAL: any customer could read any order's chat.** `canChat()` checked
+the party TYPE ("a customer may talk to a rider") and the 30-minute window,
+but never the party IDENTITY. A signed-in customer could read any transcript
+by guessing an order id — and delivery chats are exactly where gate codes,
+flat numbers and "I'm out until six" live. Verified by exploit against a
+running service, then fixed and re-verified:
+
+| Caller | Before | After |
+|---|---|---|
+| the order's customer | 200 | 201/200 |
+| the assigned rider | 200 | 200 |
+| **an unrelated customer** | **200 — full transcript** | **404** |
+| an unassigned rider | 200 | 404 |
+| a different vendor | 200 | 404 |
+| an admin token | 200 | 404 |
+
+404 everywhere, never 403: "exists but not yours" confirms the id is real.
+
+Second bug found while fixing it: `append()` was writing the party NAME into
+`from_user_id`, a uuid column — every real send 500'd, and the transcript
+would not have recorded which account said what. It is evidence; it now
+records the authenticated subject.
+
+Mutation-tested: bypassing the ownership check turns 4 specs red.
+
+Specs: **882 TS unit (+14)**, 222 integration, 34 platform e2e, 548 Dart.

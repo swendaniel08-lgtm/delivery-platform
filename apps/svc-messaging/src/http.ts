@@ -21,6 +21,7 @@ import type { Pool } from 'pg';
 
 import { HealthModule } from '../../../libs/platform/src/service/bootstrap.ts';
 import { PgChatStore } from './pg-chat-store.ts';
+import { PgParticipants } from './pg-participants.ts';
 import {
   ValidationError, UnauthorizedError, ForbiddenError, NotFoundError,
 } from '../../../libs/platform/src/errors.ts';
@@ -33,6 +34,7 @@ import { render, TEMPLATES, smsSegments, type TemplateContext } from './template
 export const DISPATCHER = Symbol('DISPATCHER');
 export const DIRECTORY = Symbol('DIRECTORY');
 export const CHAT_STORE = Symbol('CHAT_STORE');
+export const PARTICIPANTS = Symbol('PARTICIPANTS');
 export const VERIFY_TOKEN = Symbol('MESSAGING_VERIFY_TOKEN');
 
 export interface Claims { sub: string; role: string }
@@ -48,6 +50,39 @@ export class InMemoryDirectory implements Directory {
   async targetFor(orderId: string, recipient: string) {
     return this.targets.get(`${orderId}:${recipient}`) ?? null;
   }
+}
+
+/**
+ * Who is actually on an order.
+ *
+ * SECURITY: this is the ownership check for chat. `canChat` only ever
+ * validated the party TYPE ("a customer may talk to a rider") and the
+ * 30-minute window — never the party IDENTITY. Any authenticated customer
+ * could therefore read any order's transcript by guessing an order id, and
+ * those transcripts contain exactly the things people put in delivery
+ * instructions: gate codes, flat numbers, when the house is empty.
+ *
+ * Verified by exploit against a running service before this was added.
+ */
+export interface OrderParticipantLookup {
+  /** Null when the order does not exist. */
+  participants(orderId: string): Promise<{
+    customerId: string;
+    riderId: string | null;
+    vendorId: string | null;
+  } | null>;
+}
+
+/**
+ * Dev/test double. Returns null for unknown orders, which the controller
+ * treats as "not found" — the same answer a stranger gets for a real order
+ * they are not on.
+ */
+export class InMemoryParticipants implements OrderParticipantLookup {
+  orders = new Map<string, {
+    customerId: string; riderId: string | null; vendorId: string | null;
+  }>();
+  async participants(orderId: string) { return this.orders.get(orderId) ?? null; }
 }
 
 export interface ChatStore {
@@ -66,6 +101,8 @@ export interface ChatStore {
   ): Promise<ChatWindow>;
   append(msg: {
     orderId: string; pair: string; from: string;
+    /** The authenticated subject. Required: the transcript is evidence. */
+    fromUserId?: string;
     body?: string; imageUrl?: string;
   }): Promise<{ id: string; sentAt: string }>;
   history(orderId: string, pair: string): Promise<Array<Record<string, unknown>>>;
@@ -116,8 +153,55 @@ export class MessagingController {
     @Inject(DISPATCHER) private readonly dispatcher: NotificationDispatcher,
     @Inject(DIRECTORY) private readonly directory: Directory,
     @Inject(CHAT_STORE) private readonly chat: ChatStore,
+    @Inject(PARTICIPANTS) private readonly people: OrderParticipantLookup,
     @Inject(VERIFY_TOKEN) private readonly verify: VerifyToken,
   ) {}
+
+  /**
+   * Is this principal actually on this order?
+   *
+   * Returns the pair they belong to, or throws NotFound.
+   *
+   * 404 rather than 403 throughout: telling a stranger "this order exists but
+   * is not yours" confirms the id is real, which is most of what an enumerator
+   * wants. A stranger and a nonexistent order get the same answer.
+   */
+  private async requireParticipant(
+    orderId: string, c: Claims, requestedPair?: string,
+  ): Promise<'customer_rider' | 'customer_vendor'> {
+    const order = await this.people.participants(orderId);
+    if (!order) throw new NotFoundError('Conversation');
+
+    switch (c.role) {
+      case 'customer':
+        if (order.customerId !== c.sub) throw new NotFoundError('Conversation');
+        // A customer belongs to BOTH threads, so they choose; anyone else is
+        // pinned to the one thread their role can be in.
+        return requestedPair === 'customer_vendor'
+          ? 'customer_vendor' : 'customer_rider';
+
+      case 'rider':
+        if (!order.riderId || order.riderId !== c.sub) {
+          throw new NotFoundError('Conversation');
+        }
+        return 'customer_rider';
+
+      case 'vendor_owner':
+      case 'vendor_staff':
+        // Vendor tokens carry the STORE id, not a personal id — a vendor is
+        // on the order if their store is.
+        if (!order.vendorId
+            || (order.vendorId !== c.sub && order.vendorId !== (c as any).vendorId)) {
+          throw new NotFoundError('Conversation');
+        }
+        return 'customer_vendor';
+
+      default:
+        // Admins included. Support reading a live customer conversation is a
+        // separate, audited capability — not something the chat API grants.
+        throw new NotFoundError('Conversation');
+    }
+  }
 
   private claims(auth?: string): Claims {
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedError();
@@ -194,7 +278,9 @@ export class MessagingController {
     @Headers('authorization') auth?: string,
   ) {
     const c = this.claims(auth);
-    const pair = pairFor(c.role, q.pair);
+    // OWNERSHIP FIRST. pairFor() only ever derived a thread name from the
+    // caller's ROLE — it never asked whether this caller is on this order.
+    const pair = await this.requireParticipant(orderId, c, q.pair);
     const window = await this.chat.window(orderId, pair);
 
     // Reading a conversation nobody has started yet is not an error — it is
@@ -217,7 +303,7 @@ export class MessagingController {
     @Headers('authorization') auth?: string,
   ) {
     const c = this.claims(auth);
-    const pair = pairFor(c.role, body?.pair);
+    const pair = await this.requireParticipant(orderId, c, body?.pair);
 
     // Open the thread on first message rather than requiring a separate call.
     // Nothing in the platform called openThread, so EVERY chat request 404'd
@@ -245,23 +331,19 @@ export class MessagingController {
     }
 
     const saved = await this.chat.append({
-      orderId, pair, from: partyFor(c.role), ...clean,
+      orderId, pair, from: partyFor(c.role),
+      // The AUTHENTICATED subject, not the party name. Without this the
+      // store fell back to writing "customer" into a uuid column and every
+      // send 500'd — and, worse, the transcript would not have recorded WHO
+      // said what, which is the whole point of keeping it as evidence.
+      fromUserId: c.sub,
+      ...clean,
     });
     return { orderId, pair, from: partyFor(c.role), ...clean, ...saved };
   }
 }
 
 /** Which conversation this role belongs to. */
-function pairFor(role: string, requested?: string): ChatWindow['pair'] {
-  if (role === 'rider') return 'customer_rider';
-  if (role === 'vendor_owner' || role === 'vendor_staff') return 'customer_vendor';
-  // A customer is in both, so they must say which.
-  if (requested === 'customer_vendor' || requested === 'customer_rider') {
-    return requested;
-  }
-  return 'customer_rider';
-}
-
 function partyFor(role: string): ChatParty {
   if (role === 'rider') return 'rider';
   if (role === 'vendor_owner' || role === 'vendor_staff') return 'vendor';
@@ -275,6 +357,7 @@ export interface MessagingDeps {
   dispatcher: NotificationDispatcher;
   directory?: Directory;
   chatStore?: ChatStore;
+  participants?: OrderParticipantLookup;
   verifyToken?: VerifyToken;
 }
 
@@ -288,6 +371,13 @@ export class MessagingHttpModule {
       providers: [
         { provide: DISPATCHER, useValue: deps.dispatcher },
         { provide: DIRECTORY, useValue: deps.directory ?? new InMemoryDirectory() },
+        {
+          provide: PARTICIPANTS,
+          useValue: deps.participants
+            ?? (deps.pool
+              ? new PgParticipants(deps.pool)
+              : new InMemoryParticipants()),
+        },
         {
           provide: CHAT_STORE,
           // An explicit store wins; otherwise a pool means PERSIST. Before
