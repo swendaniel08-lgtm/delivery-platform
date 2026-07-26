@@ -40,6 +40,11 @@ const PORTS = {
   pricing: 4804,
   bffCustomer: 4901,
   bffVendor: 4902,
+  bffRider: 4903,
+  dispatch: 4805,
+  tracking: 4806,
+  payment: 4807,
+  media: 4808,
   gateway: 4900,
 };
 
@@ -77,6 +82,16 @@ const SERVICES: ServiceSpec[] = [
     extra: { BFF_CUSTOMER_PORT: String(PORTS.bffCustomer) } },
   { name: 'bff-vendor', main: 'apps/bff-vendor/src/main.ts', port: PORTS.bffVendor,
     extra: { BFF_VENDOR_PORT: String(PORTS.bffVendor) } },
+  { name: 'payment', main: 'apps/svc-payment/src/main.ts', port: PORTS.payment, db: 'payment',
+    extra: { SVC_PAYMENT_PORT: String(PORTS.payment) } },
+  { name: 'media', main: 'apps/svc-media/src/main.ts', port: PORTS.media,
+    extra: { SVC_MEDIA_PORT: String(PORTS.media) } },
+  { name: 'dispatch', main: 'apps/svc-dispatch/src/main.ts', port: PORTS.dispatch, db: 'dispatch',
+    extra: { SVC_DISPATCH_PORT: String(PORTS.dispatch) } },
+  { name: 'tracking', main: 'apps/svc-tracking/src/main.ts', port: PORTS.tracking, db: 'tracking',
+    extra: { SVC_TRACKING_PORT: String(PORTS.tracking) } },
+  { name: 'bff-rider', main: 'apps/bff-rider/src/main.ts', port: PORTS.bffRider,
+    extra: { BFF_RIDER_PORT: String(PORTS.bffRider) } },
   { name: 'gateway', main: 'apps/gateway/src/main.ts', port: PORTS.gateway,
     extra: {
       PORT: String(PORTS.gateway),
@@ -108,6 +123,11 @@ function launch(svc: ServiceSpec): ChildProcess {
       SVC_PRICING_URL: `http://127.0.0.1:${PORTS.pricing}`,
       BFF_CUSTOMER_URL: `http://127.0.0.1:${PORTS.bffCustomer}`,
       BFF_VENDOR_URL: `http://127.0.0.1:${PORTS.bffVendor}`,
+      BFF_RIDER_URL: `http://127.0.0.1:${PORTS.bffRider}`,
+      SVC_DISPATCH_URL: `http://127.0.0.1:${PORTS.dispatch}`,
+      SVC_TRACKING_URL: `http://127.0.0.1:${PORTS.tracking}`,
+      SVC_PAYMENT_URL: `http://127.0.0.1:${PORTS.payment}`,
+      SVC_MEDIA_URL: `http://127.0.0.1:${PORTS.media}`,
       ...svc.extra,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -149,7 +169,8 @@ before(async () => {
 
   // Fresh databases every run: a test that only passes on a dirty database
   // is not a test.
-  for (const db of ['identity', 'catalogue', 'orders']) {
+  for (const db of ['identity', 'catalogue', 'orders', 'payment', 'dispatch',
+    'tracking']) {
     await admin.query(`DROP DATABASE IF EXISTS ${db}`).catch(() => {});
     await admin.query(`CREATE DATABASE ${db}`);
   }
@@ -166,6 +187,9 @@ before(async () => {
   await migrate('catalogue', 'apps/svc-catalogue/migrations/001_catalogue.sql');
   await migrate('orders', 'apps/svc-order/migrations/001_orders.sql');
   await migrate('orders', 'apps/svc-order/migrations/002_idempotency.sql');
+  await migrate('payment', 'apps/svc-payment/migrations/001_ledger.sql');
+  await migrate('dispatch', 'apps/svc-dispatch/migrations/001_dispatch.sql');
+  await migrate('tracking', 'apps/svc-tracking/migrations/001_tracking.sql');
 
   // Seed one approved vendor with one dish.
   const cat = new pg.Pool({ connectionString: dsn('catalogue') });
@@ -193,9 +217,15 @@ before(async () => {
     await cat.end();
   }
 
-  // Boot every service, then wait for all of them.
-  for (const svc of SERVICES) procs.push(launch(svc));
-  for (const svc of SERVICES) await waitForHealth(svc.port, svc.name);
+  // Boot in small batches. Eleven concurrent tsx compilers peak around
+  // 150MB each and exhaust a 2GB box; they then take so long that the
+  // health timeout fires and it looks like a service is broken.
+  const BATCH = 3;
+  for (let i = 0; i < SERVICES.length; i += BATCH) {
+    const batch = SERVICES.slice(i, i + BATCH);
+    for (const svc of batch) procs.push(launch(svc));
+    for (const svc of batch) await waitForHealth(svc.port, svc.name);
+  }
 });
 
 /** Signal the whole process group, not just the npx wrapper. */
@@ -784,6 +814,105 @@ describe('the vendor side', () => {
     });
     assert.equal(res.status, 404,
       'probing ids must not confirm another store\'s orders exist');
+  });
+});
+
+
+describe('the rider side', () => {
+  async function riderToken(phone: string) {
+    const req = await api('/api/auth/otp/request', {
+      method: 'POST', body: JSON.stringify({ phone }),
+    });
+    const otp = await req.json() as any;
+    const ver = await api('/api/auth/otp/verify', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code: otp.debugCode, role: 'rider' }),
+    });
+    const b = await ver.json() as any;
+    assert.equal(ver.status, 201, JSON.stringify(b));
+    return { token: b.tokens.accessToken as string, id: b.user.id as string };
+  }
+
+  test('a rider can sign in and read their state', async () => {
+    const r = await riderToken('0244300001');
+    const res = await api('/api/rider/state', { headers: auth(r.token) });
+    const body = await res.json() as any;
+
+    assert.equal(res.status, 200, JSON.stringify(body));
+    // The exact keys RiderCoordinator.refresh() reads.
+    for (const k of ['riderName', 'approved', 'walletBalancePesewas',
+      'todayEarningsPesewas', 'todayDeliveries', 'codObligationPesewas',
+      'activeLeg', 'offer']) {
+      assert.ok(k in body, `rider state is missing "${k}"`);
+    }
+    assert.equal(body.activeLeg, null, 'a new rider has no job');
+  });
+
+  test('a customer token cannot read rider state', async () => {
+    const c = await signIn('0244300002');
+    const res = await api('/api/rider/state', { headers: auth(c.token) });
+    assert.ok([401, 403].includes(res.status));
+  });
+
+  test('PROOF UPLOAD: a rider gets somewhere to put the photo', async () => {
+    const r = await riderToken('0244300003');
+    const res = await api('/api/rider/proof-uploads', {
+      method: 'POST', headers: auth(r.token),
+      body: JSON.stringify({
+        orderId: '00000000-0000-4000-8000-000000000abc',
+        contentType: 'image/jpeg', sizeBytes: 900_000,
+      }),
+    });
+    const body = await res.json() as any;
+
+    assert.equal(res.status, 201, JSON.stringify(body));
+    assert.ok(body.uploadUrl,
+      'without this no rider can complete a single delivery');
+    assert.match(body.objectKey, /^proof_of_delivery\//);
+  });
+
+  test('an oversized proof photo is refused', async () => {
+    const r = await riderToken('0244300004');
+    const res = await api('/api/rider/proof-uploads', {
+      method: 'POST', headers: auth(r.token),
+      body: JSON.stringify({
+        orderId: '00000000-0000-4000-8000-000000000abc',
+        contentType: 'image/jpeg', sizeBytes: 50_000_000,
+      }),
+    });
+    assert.equal(res.status, 422, 'the 3MB cap must hold at the edge');
+  });
+
+  test('COMPLETING A DELIVERY WITHOUT A PHOTO IS REFUSED', async () => {
+    const r = await riderToken('0244300005');
+    const res = await api('/api/rider/legs/leg-nonexistent/events', {
+      method: 'POST', headers: auth(r.token),
+      body: JSON.stringify({ event: 'rider_deliver' }),
+    });
+    const body = await res.json() as any;
+
+    assert.equal(res.status, 422);
+    assert.ok(body.errors?.photoUrl,
+      'proof is the evidence in a "never arrived" dispute');
+  });
+
+  test('an invented rider event is refused', async () => {
+    const r = await riderToken('0244300006');
+    const res = await api('/api/rider/legs/leg-1/events', {
+      method: 'POST', headers: auth(r.token),
+      body: JSON.stringify({ event: 'mark_paid' }),
+    });
+    assert.equal(res.status, 422, 'the rider vocabulary is fixed');
+  });
+
+  test('a rider wallet reports a real balance', async () => {
+    const r = await riderToken('0244300007');
+    const res = await api('/api/rider/state', { headers: auth(r.token) });
+    const body = await res.json() as any;
+
+    assert.equal(body.walletBalancePesewas, '0');
+    assert.equal(body.codObligationPesewas, '0',
+      'a new rider is holding none of our cash');
   });
 });
 

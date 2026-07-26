@@ -22,7 +22,7 @@ cleanup() {
   # Kill anything still bound to the test ports. tsx spawns a child, so the
   # spec's SIGTERM can leave an orphan holding the port and the next run
   # fails with EADDRINUSE that looks like a code bug.
-  for port in 4801 4802 4803 4804 4900 4901 4902; do
+  for port in 4801 4802 4803 4804 4805 4806 4807 4808 4900 4901 4902 4903; do
     pids=$(ss -ltnp 2>/dev/null | grep -oP "(?<=:)${port}\b.*pid=\K[0-9]+" || true)
     [ -n "${pids:-}" ] && kill -TERM $pids 2>/dev/null
   done
