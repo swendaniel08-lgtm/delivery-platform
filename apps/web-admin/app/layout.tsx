@@ -1,13 +1,15 @@
 import './globals.css';
-import { visibleNav, type Principal } from '../lib/rbac';
+import { visibleNav } from '../lib/rbac';
+import { getSession } from '../lib/session';
 
 export const metadata = { title: 'Besonc Admin' };
 
-/** Replaced by the real session in Sprint 15; shape is already correct. */
-const currentUser: Principal = { id: 'admin-1', role: 'ops_manager', zones: ['accra-osu'] };
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const nav = visibleNav(currentUser);
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // The nav is built from the REAL signed-in role. It is a convenience, not a
+  // boundary: bff-admin re-checks every call and admin-svc re-checks after
+  // that, so hiding a link prevents an accident, not an attacker.
+  const session = await getSession().catch(() => null);
+  const nav = session ? visibleNav(session.principal) : [];
   return (
     <html lang="en">
       <body>
@@ -18,7 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {nav.map((i) => <a key={i.href} href={i.href}>{i.label}</a>)}
             </nav>
             <div style={{ padding: '20px', color: 'var(--muted)', fontSize: 12 }}>
-              Signed in as<br /><strong style={{ color: 'var(--text)' }}>{currentUser.role}</strong>
+              {session
+                ? <>Signed in as<br /><strong style={{ color: 'var(--text)' }}>{session.principal.role}</strong></>
+                : <>Not signed in</>}
             </div>
           </aside>
           <main className="main">{children}</main>

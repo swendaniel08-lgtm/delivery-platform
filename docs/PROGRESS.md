@@ -834,3 +834,37 @@ Verified by running the service three ways: real key (boots, names project),
 mangled key (exit 78, actionable message), no key (boots, warns loudly).
 
 Specs: 853 TS unit (+41), 146 TS integration, 450 Dart.
+
+## Session: admin dashboard connected to bff-admin
+
+Every page in `apps/web-admin` rendered hard-coded numbers (234 orders,
+GHS 12,400 revenue, four invented orders, three invented audit entries). That
+is worse than a blank screen: an operator cannot tell a stub from a live
+figure, and a number that never changes is one somebody eventually acts on.
+
+- `lib/api.ts` — the only door to the backend. Typed against the ACTUAL
+  bff-admin wire, with a per-call deadline and RFC 7807 error detail.
+- `lib/session.ts` — reads the real staff cookie and verifies it with the same
+  verifier the services use. The layout previously hard-coded
+  `role: 'ops_manager'`, so RBAC in the UI was decorative.
+- `app/_components/states.tsx` — error, degraded and empty states that cannot
+  be confused with each other.
+- Dashboard, orders and audit pages all read live data.
+
+**The bug this found:** bff-admin sends `revenueDisplay: "GHS 12,400.00"`, a
+preformatted string. The page was typed for `revenuePesewas: bigint` and
+called `formatCedis()` on it. The first real render would have produced a
+crash or `NaN` on the operations home screen. It was invisible while the data
+was a local literal that happened to match the wrong type.
+
+Also removed: the dashboard used to evaluate ledger alarms client-side against
+its own metrics, so the UI could disagree with the backend about whether
+payouts were halted. The server decides now; the page renders the decision.
+
+Verified by running web-admin against a live bff-admin + admin-svc:
+real zeros render; a forged token gets no session; `support` is refused the
+audit log with an explanation rather than an error; killing admin-svc shows
+"Partial data / Metrics unavailable"; killing bff-admin shows "Could not load
+the dashboard". At no point does a failure render as a zero.
+
+Specs: 868 TS unit (+15), 146 TS integration, 450 Dart.

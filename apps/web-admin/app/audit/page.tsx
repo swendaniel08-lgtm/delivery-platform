@@ -1,46 +1,79 @@
+import { fetchAudit, AdminApiError } from '../../lib/api';
+import { getSession } from '../../lib/session';
 import { formatCedis } from '../../lib/format';
+import { ErrorPanel, EmptyState, SignInPrompt } from '../_components/states';
 
-interface AuditRow {
-  id: string; actorRole: string; action: string; entityType: string;
-  entityId: string; amountPesewas: string | null; reason: string | null; createdAt: string;
-}
-
-async function getAudit(): Promise<AuditRow[]> {
-  return [
-    { id: '1', actorRole: 'finance', action: 'payment.refund', entityType: 'Payment',
-      entityId: 'pay-8821', amountPesewas: '8150',
-      reason: 'customer never received the order', createdAt: '2026-07-25 11:42' },
-    { id: '2', actorRole: 'ops_manager', action: 'vendor.suspend', entityType: 'Vendor',
-      entityId: 'ven-104', amountPesewas: null,
-      reason: 'repeated auto-rejections, 12 in one day', createdAt: '2026-07-25 10:15' },
-    { id: '3', actorRole: 'support', action: 'order.view', entityType: 'Order',
-      entityId: 'ord-1234', amountPesewas: null, reason: null, createdAt: '2026-07-25 09:58' },
-  ];
-}
+/**
+ * The audit trail.
+ *
+ * admin-svc restricts this to super_admin / ops_manager / finance — an audit
+ * log a junior agent can browse is a list of which colleagues to imitate. The
+ * 403 is rendered as a plain explanation rather than an error, because being
+ * refused here is normal and not a fault.
+ */
+export const dynamic = 'force-dynamic';
 
 export default async function Audit() {
-  const rows = await getAudit();
+  const session = await getSession();
+  if (!session) return <SignInPrompt />;
+
+  let entries;
+  try {
+    ({ entries } = await fetchAudit(session.token, 100));
+  } catch (err) {
+    const e = err as AdminApiError;
+    return (
+      <>
+        <h1>Audit log</h1>
+        {e.status === 403 ? (
+          <EmptyState message={
+            'Your role cannot read the audit log. Only a senior administrator '
+            + '(super admin, operations manager or finance) may review the '
+            + 'actions of other staff.'
+          } />
+        ) : (
+          <ErrorPanel title="Could not load the audit log." detail={e.userMessage ?? String(e)} />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <h1>Audit log</h1>
-      <p className="sub">Append-only. Entries can never be edited or deleted.</p>
-      <table>
-        <thead>
-          <tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Amount</th><th>Reason</th></tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td className="mono">{r.createdAt}</td>
-              <td><span className="pill">{r.actorRole}</span></td>
-              <td className="mono">{r.action}</td>
-              <td className="mono">{r.entityType}/{r.entityId}</td>
-              <td className="mono">{r.amountPesewas ? formatCedis(r.amountPesewas) : '—'}</td>
-              <td style={{ color: r.reason ? 'inherit' : 'var(--muted)' }}>{r.reason ?? '—'}</td>
+      <p className="sub">
+        Append-only. Entries can never be edited or deleted — including by the
+        person who made them.
+      </p>
+
+      {entries.length === 0 ? (
+        <EmptyState message="No administrative actions have been recorded yet." />
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Actor</th><th>Action</th>
+              <th>Entity</th><th>Amount</th><th>Reason</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {entries.map((r) => (
+              <tr key={r.id}>
+                <td className="mono">{new Date(r.createdAt).toLocaleString('en-GB')}</td>
+                <td><span className="pill">{r.actorRole}</span></td>
+                <td className="mono">{r.action}</td>
+                <td className="mono">{r.entityType}/{r.entityId}</td>
+                <td className="mono">
+                  {r.amountPesewas ? formatCedis(r.amountPesewas) : '—'}
+                </td>
+                {/* A money-moving action with no reason is the thing an
+                    auditor looks for first, so absence is shown, not hidden. */}
+                <td>{r.reason ?? <span className="sub">no reason given</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

@@ -16,7 +16,7 @@ COMPOSE := $(DOCKER) compose --env-file .env -f $(COMPOSE_FILE)
 
 .DEFAULT_GOAL := help
 .PHONY: help setup env test test-db s3-up s3-down test-mobile test-platform test-all run stop status logs \
-        build up down ps migrate clean
+        build up down ps migrate clean admin-dev admin-build
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -71,6 +71,17 @@ status: ## Health of every local service
 
 logs: ## Tail one service, e.g. `make logs SVC=identity`
 	bash infra/scripts/run-stack.sh logs $(or $(SVC),gateway)
+
+## ---------------------------------------------------------------- admin ui
+
+admin-dev: ## Run the admin dashboard against a local bff-admin (needs `make run`)
+	cd apps/web-admin && \
+	  ADMIN_API_URL=$${ADMIN_API_URL:-http://127.0.0.1:3104} \
+	  JWT_ACCESS_SECRET=$${JWT_ACCESS_SECRET:-dev-access-secret} \
+	  npx next dev -p 3200
+
+admin-build: ## Production build of the admin dashboard
+	cd apps/web-admin && npx next build
 
 ## ---------------------------------------------------------------- docker
 
