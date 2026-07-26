@@ -138,7 +138,71 @@ function launch(svc: ServiceSpec): ChildProcess {
   child.stderr?.on('data', (d) => log.push(String(d)));
   (child as any).__log = log;
   (child as any).__name = svc.name;
+
+  // Record HOW a service died. Without this, a process that boots healthy and
+  // is later OOM-killed shows up only as `fetch failed` on some unrelated
+  // assertion, and the hour goes on looking for a bug in the wrong service.
+  // On a 2GB box running eleven tsx processes, that is a real scenario.
+  child.on('exit', (code, signal) => {
+    (child as any).__exit = { code, signal, at: Date.now() };
+  });
   return child;
+}
+
+/**
+ * If a service has died, say so — with its exit code, its signal and the tail
+ * of its own log. A SIGKILL with no message is the kernel's OOM killer.
+ */
+function deathReport(names?: string[]): string | null {
+  const of = (p: any) => ({
+    name: p.__name, exit: p.__exit, log: p.__log, pid: p.pid,
+  });
+  const interesting = procs.map(of)
+    .filter((p) => (names ? names.includes(p.name) : true));
+
+  const lines: string[] = [];
+  for (const p of interesting) {
+    if (p.exit) {
+      // 137 is 128 + SIGKILL(9): the npx wrapper relaying a killed
+      // grandchild. It arrives as a CODE, not a signal, which is why an
+      // OOM kill is easy to misread as an ordinary non-zero exit.
+      const oom = p.exit.signal === 'SIGKILL' || p.exit.code === 137;
+      const how = p.exit.signal
+        ? `killed by ${p.exit.signal}`
+        : `exited with code ${p.exit.code}`;
+      const why = oom
+        ? ' — this is an OOM kill. The box has ~2GB and each tsx process '
+          + 'peaks near 150MB; run fewer services, or raise the batch '
+          + 'stagger in the boot loop.'
+        : '';
+      lines.push(`  ${p.name}: ${how}${why}`);
+    } else if (names?.includes(p.name)) {
+      // The npx WRAPPER is still alive but the service is unreachable, which
+      // means the grandchild — the actual server — is the thing that died.
+      // This is the usual shape of an OOM kill here, and it produces no exit
+      // event on the process we hold, so it has to be inferred.
+      lines.push(
+        `  ${p.name}: wrapper pid ${p.pid} is still alive but the port is `
+        + 'not answering — the server process underneath it died '
+        + '(OOM kill leaves the npx wrapper running)',
+      );
+    } else {
+      continue;
+    }
+    const tail = (p.log ?? []).join('').slice(-500).trim();
+    if (tail) lines.push(`    last output: ${tail.replace(/\n/g, '\n    ')}`);
+  }
+
+  if (lines.length === 0) return null;
+  const mem = (() => {
+    try {
+      const t = readFileSync('/proc/meminfo', 'utf8');
+      const g = (k: string) => /(\d+)/.exec(t.split(k)[1] ?? '')?.[1];
+      return `  memory: ${Math.round(Number(g('MemAvailable:')) / 1024)}MB available `
+        + `of ${Math.round(Number(g('MemTotal:')) / 1024)}MB`;
+    } catch { return ''; }
+  })();
+  return [...lines, mem].filter(Boolean).join('\n');
 }
 
 async function waitForHealth(port: number, name: string, timeoutMs = 90_000) {
@@ -154,7 +218,11 @@ async function waitForHealth(port: number, name: string, timeoutMs = 90_000) {
   }
   const proc = procs.find((p) => (p as any).__name === name);
   const log = ((proc as any)?.__log ?? []).join('').slice(-1500);
-  throw new Error(`${name} never became healthy on :${port}\n--- log ---\n${log}`);
+  const deaths = deathReport();
+  throw new Error(
+    `${name} never became healthy on :${port}\n--- log ---\n${log}`
+    + (deaths ? `\n--- services that died ---\n${deaths}` : ''),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,11 +288,19 @@ before(async () => {
   // Boot in small batches. Eleven concurrent tsx compilers peak around
   // 150MB each and exhaust a 2GB box; they then take so long that the
   // health timeout fires and it looks like a service is broken.
-  const BATCH = 3;
+  // Batch size is a memory budget, not a speed knob. Eleven concurrent tsx
+  // compilers peak near 150MB each; on a ~2GB box that ends in the OOM killer
+  // taking out a service that had already reported healthy, which then
+  // surfaces as an unrelated "fetch failed" two suites later. Overridable so
+  // a larger machine can go faster.
+  const BATCH = Number(process.env.E2E_BOOT_BATCH ?? 2);
   for (let i = 0; i < SERVICES.length; i += BATCH) {
     const batch = SERVICES.slice(i, i + BATCH);
     for (const svc of batch) procs.push(launch(svc));
     for (const svc of batch) await waitForHealth(svc.port, svc.name);
+    // Let each batch's compiler memory be reclaimed before adding more.
+    // Without this the peaks overlap even when the steady state would fit.
+    await new Promise((r) => setTimeout(r, 700));
   }
 });
 
@@ -281,10 +357,29 @@ const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
 describe('the platform is actually wired together', () => {
   test('every service reports healthy', async () => {
+    // Collect ALL of them before asserting. Failing on the first one hides
+    // how widespread the problem is, and "media is down" reads very
+    // differently from "six services are down".
+    const unhealthy: string[] = [];
     for (const svc of SERVICES) {
-      const res = await fetch(`http://127.0.0.1:${svc.port}/health`);
-      assert.equal(res.status, 200, `${svc.name} is not healthy`);
+      try {
+        const res = await fetch(`http://127.0.0.1:${svc.port}/health`, {
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (res.status !== 200) unhealthy.push(`${svc.name} (HTTP ${res.status})`);
+      } catch (err) {
+        unhealthy.push(`${svc.name} (${(err as Error).message})`);
+      }
     }
+
+    // A service that booted and then died is the common case on a small box,
+    // and a bare "fetch failed" sends you looking for a bug that is not there.
+    const deaths = deathReport(unhealthy.map((u) => u.split(' ')[0]!));
+    assert.equal(
+      unhealthy.length, 0,
+      `unhealthy: ${unhealthy.join(', ')}`
+      + (deaths ? `\n--- services that died ---\n${deaths}` : ''),
+    );
   });
 
   test('the gateway rewrites prefixes to what services actually serve', async () => {
