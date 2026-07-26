@@ -21,10 +21,22 @@
 
 import 'server-only';
 
-const BASE = process.env.ADMIN_API_URL ?? 'http://127.0.0.1:3104';
+/**
+ * Read per call, not once at import.
+ *
+ * A module-level constant is captured before the process environment is
+ * necessarily complete, and it makes the base URL impossible to vary between
+ * requests — which matters for tests and for any future per-region routing.
+ * The cost is one property read per call.
+ */
+function baseUrl(): string {
+  return process.env.ADMIN_API_URL ?? 'http://127.0.0.1:3104';
+}
 
 /** Server-side deadline. A hung upstream must not hang the whole page. */
-const TIMEOUT_MS = Number(process.env.ADMIN_API_TIMEOUT_MS ?? 6000);
+function timeoutMs(): number {
+  return Number(process.env.ADMIN_API_TIMEOUT_MS ?? 6000);
+}
 
 /* ------------------------------------------------------------------ */
 /* Wire types — these match bff-admin exactly. Do not "improve" them.  */
@@ -110,12 +122,13 @@ export class AdminApiError extends Error {
 }
 
 async function get<T>(path: string, token: string): Promise<T> {
+  const deadline = timeoutMs();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), deadline);
 
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(`${baseUrl()}${path}`, {
       headers: { authorization: `Bearer ${token}` },
       signal: controller.signal,
       // Operations data is never cacheable. A stale "unremitted COD" figure
@@ -126,7 +139,7 @@ async function get<T>(path: string, token: string): Promise<T> {
     const e = err as Error;
     throw new AdminApiError(
       0, path,
-      e.name === 'AbortError' ? `timed out after ${TIMEOUT_MS}ms` : e.message,
+      e.name === 'AbortError' ? `timed out after ${deadline}ms` : e.message,
     );
   } finally {
     clearTimeout(timer);

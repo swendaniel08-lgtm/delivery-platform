@@ -21,7 +21,7 @@ import {
 } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
   infraFrom, jwtFrom, smsConfigFrom, firebaseFrom, describeConfig, ConfigError,
-  numberFrom,
+  numberFrom, isProduction,
 } from '../../../libs/platform/src/config/env.ts';
 import { verifyAccessToken } from '../../../libs/platform/src/auth/verify.ts';
 import {
@@ -31,8 +31,9 @@ import {
 import { MessagingHttpModule } from './http.ts';
 import {
   NotificationDispatcher, InMemoryPushProvider, InMemoryDedupeStore,
-  type PushProvider,
+  type PushProvider, type DedupeStore,
 } from './dispatcher.ts';
+import { RedisDedupeStore } from './redis-dedupe-store.ts';
 import { FcmPushProvider } from './push/fcm.ts';
 
 const NAME = 'svc-messaging';
@@ -76,8 +77,22 @@ async function main() {
   // Deduplication MUST be shared across replicas. With an in-memory store,
   // two replicas each see the same outbox event as new and the customer
   // gets two texts — and we pay for both.
-  const dedupe = new InMemoryDedupeStore();
-  if (!infra.redisUrl) {
+  let dedupe: DedupeStore;
+  if (infra.redisUrl) {
+    dedupe = await connectRedisDedupe(infra.redisUrl);
+  } else {
+    if (isProduction()) {
+      // Refusing is the only honest option. A per-process Set behind two
+      // replicas means every customer gets every critical message twice and
+      // we are billed for each — a fault that is invisible in logs and only
+      // shows up on the Hubtel invoice.
+      throw new ConfigError(
+        'REDIS_URL is required in production. Notification dedupe would '
+        + 'otherwise be per-process: with more than one replica every '
+        + 'customer receives duplicate messages and we pay for each one.',
+      );
+    }
+    dedupe = new InMemoryDedupeStore();
     console.warn(`[${NAME}] WARNING: no REDIS_URL — notification dedupe is `
       + 'PER-PROCESS. Do not run more than one replica: customers will '
       + 'receive duplicate messages and we pay for each one.');
@@ -144,6 +159,16 @@ async function main() {
 
   installShutdownHandlers(svc);
   console.log(`[${NAME}] listening on ${svc.url}`);
+}
+
+/** Lazily imported so `ioredis` is not a hard dependency for tests. */
+async function connectRedisDedupe(url: string): Promise<DedupeStore> {
+  const { default: Redis } = await import('ioredis');
+  const redis = new Redis(url, { maxRetriesPerRequest: 3 });
+  await redis.ping();
+  console.log(`[${NAME}] redis connected — notification dedupe is shared `
+    + 'across replicas');
+  return new RedisDedupeStore(redis as any);
 }
 
 main().catch((err) => {

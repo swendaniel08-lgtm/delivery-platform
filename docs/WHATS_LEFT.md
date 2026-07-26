@@ -1,6 +1,11 @@
 # What's Left — honest status
 
-**Date:** 2026-07-25 · Measured, not estimated from memory.
+**Date:** 2026-07-26 · Measured this session, not recalled.
+
+Everything below was re-checked by running it. Where a previous version of
+this file was optimistic or simply out of date, it has been corrected —
+notably section 2, which still listed the gateway, BFFs, outbox relay and
+media-svc as unbuilt long after they were working.
 
 ---
 
@@ -8,104 +13,127 @@
 
 | Area | Measured | Status |
 |---|---|---|
-| Backend + shared libs | ~61,000 lines TS | ✅ Thorough, well-tested |
-| Tests | **1,390 specs green** (773 TS unit + 133 integration + **34 full-platform** + 450 Dart) | ✅ Real |
-| **Full-platform e2e** | 11 real services + PostGIS; customer, vendor AND rider verified | ✅ `make test-platform` |
-| SQL migrations | 9 services | ✅ Constraints enforce invariants |
-| Admin dashboard | Next.js 16, 4 routes, builds & serves | 🟡 Renders **stubbed data** |
-| **Flutter apps** | ~15,500 lines Dart | 🟡 Customer: browse→cart→checkout→**live tracking**. Rider: can complete a delivery. Vendor: queue + menu |
-| Third-party clients | Hubtel, Paystack, Google Maps all REAL and wired | 🟡 Never yet run against live keys |
-| Shared Dart packages | models, api, ui, auth real; 4 still stubs | 🟡 Partly built |
-| HTTP surface | **all 10 services + 4 BFFs + gateway** | ✅ Complete |
-| **Runnable processes** | **15/15 boot healthy on real Postgres** | ✅ `make run` |
-| **Deployment** | Dockerfile + compose; full flow verified in containers | ✅ `make up` |
-| Credential wiring | Typed config, production guardrails, `.env` | ✅ Ready for your keys |
-| Event bus | RabbitMQ outbox relay, verified end-to-end | ✅ Working |
+| Backend + shared libs | ~31,600 lines TS | ✅ Thorough, well-tested |
+| Tests | **1,472 green** (868 TS unit + 154 integration + **34 full-platform e2e** + 416 Dart) | ✅ Real, all re-run today |
+| **Full-platform e2e** | 11 real services + real PostGIS; customer, vendor AND rider paths | ✅ `make test-platform` — 34/34 |
+| SQL migrations | 9 services | ✅ Constraints enforce the invariants |
+| **Runnable processes** | **15/15 boot healthy** | ✅ `make run` |
+| **Deployment** | One image, `SERVICE_MAIN` selects the service; compose stack | ✅ `make up` |
+| Gateway + 4 BFFs | Routing, JWT, rate limiting, degradation | ✅ Working |
+| Event bus | RabbitMQ outbox relay, verified end to end | ✅ Working |
 | WebSocket transport | Real `ws` server for tracking + chat | ✅ Working |
-
-**The headline:** the hard *thinking* is done and verified, the plumbing is
-well underway, and one of the three apps now genuinely boots and talks to the
-backend. The other two apps and most repository layers remain.
+| **Object storage** | Real SigV4 presigning (S3/R2/B2/Spaces/MinIO) | ✅ **New** — verified against live MinIO |
+| **Push** | Real FCM HTTP v1 incl. OAuth2 service-account flow | ✅ **New** — boots with a real key |
+| SMS | Hubtel primary, Arkesel failover | 🟡 Real client, never called with live credentials |
+| Payments | Paystack charges + signed webhooks, double-entry ledger | 🟡 Real client, never called against the sandbox |
+| Maps | Real Google client, caching + budget | 🟡 Real client, never called with a live key |
+| **Admin dashboard** | Next.js 16, live data from bff-admin | ✅ **New** — stubs deleted |
+| **Flutter apps** | ~16,200 lines Dart | 🟡 See below |
 
 ---
 
 ## Remaining work
 
-### 1. Mobile — still the largest single item 🟡
+### 1. Mobile breadth — the largest single item 🟡
 
-**All three apps boot, sign in over real OTP, and render live data from their
-BFF.** What remains is breadth, not foundations: the customer app has home
-and vendor screens but no cart/checkout/tracking screens wired to navigation;
-vendor has the order queue but no menu editor; rider has the job flow but no
-map, camera or remittance screen.
+All three apps boot, sign in over real OTP, and render live data. The
+foundations are not in question; the screen count is.
 
-| App | Screens needed (approx.) |
-|---|---|
-| **Customer** | onboarding/OTP, address picker w/ map + GhanaPostGPS, 8 service tiles, vendor list + filters, vendor page, item sheet w/ addons & variants, cart, checkout, payment (MoMo/card/COD), live tracking map, order history, chat, wallet, prescription upload, shopping-list builder, errand form, parcel form |
-| **Vendor** | OTP, KYC onboarding, dashboard, incoming-order alert (loud, 3-min timer), order management, menu CRUD w/ addon/variant editors, stock toggles, operating hours, earnings, payout request |
-| **Rider** | OTP, KYC + vehicle docs, online/offline toggle, background location, offer sheet w/ 30 s countdown, navigation hand-off, status buttons per state, COD collection + balance, remittance, proof-of-delivery camera, earnings, chat |
+| App | Works today | Missing |
+|---|---|---|
+| **Customer** | browse → store → cart → checkout → live tracking | map widget, order history, address map picker, chat UI, wallet, prescription upload, shopping-list builder, errand + parcel forms |
+| **Rider** | full job flow, proof-of-delivery capture and upload | map/navigation hand-off, COD remittance screen, earnings, chat |
+| **Vendor** | order queue, menu management | KYC onboarding, operating hours, earnings, payout request |
 
-Plus the 8 shared packages: API client, models, auth, design system, tracking map widget, chat UI, payment UI, utils.
+`google_maps_flutter` is still not a dependency — tracking renders as a
+progress trail, not a map. That is the most visible gap to a pilot user.
 
-**Realistically ~50–60% of all remaining effort.**
+### 2. Repository layers still in memory 🟡
 
-### 2. Service plumbing ❌
+Real Postgres repositories exist for identity, catalogue, order, payment and
+admin. These still lose their state on restart:
 
-- **Gateway** — JWT verification, rate limiting, routing, CORS/Helmet
-- **4 BFFs** — customer, vendor, rider, admin (the admin dashboard has no backend today)
-- **HTTP for 10 services** — only `svc-order` is reachable
-- **Outbox relay → RabbitMQ** — events are written but **never published**; no service reacts to another
-- **WebSocket server** — tracking and chat logic exist with no transport
-- **`media-svc`** — uploads, compression, S3/R2. Nothing built; blocks menu photos, KYC, POD, receipts
+- **dispatch** — claim store falls back to memory without Redis (it *does*
+  use Redis when `REDIS_URL` is set, which is what prevents the double-accept
+  race; the fallback is dev-only and warns at boot)
+- **tracking** — location pings
+- **messaging** — chat history (dedupe is now Redis-backed; see below)
 
-### 3. Verification gaps 🟡
+**Fixed this session:** notification dedupe was per-process, so two replicas
+each treated the same outbox event as new and the customer received two texts
+that we paid for twice. It is now Redis-backed and shared, verified with two
+dispatchers against one real Redis, and production refuses to start without
+`REDIS_URL`.
 
-- **Paystack has never run against the sandbox.** Status strings, MoMo webhook payloads and settlement-file format are unconfirmed.
-- **Hubtel/Arkesel never called.** Sender-ID approval not started.
-- **Google Maps never called.** The 89.7% saving is simulated, not measured.
-- **No load test.** k6 planned, not run.
-- **No mobile builds in CI.** The workflow is still parked in `infra/ci-pending/` (token lacked `workflow` scope).
+### 3. Verification against live third parties ❌
 
-### 4. Remaining planned sprints
+Every client is real and wired to env vars. None has been run against real
+credentials, because none exist in this environment.
 
-| Sprint | Work |
-|---|---|
-| 15–16 | Fraud controls (issue #15 hardening), k6 load test, broker chaos, security review, reconciliation drill |
-| 17–18 | Pilot: one Accra zone, Food + Parcel, 20 vendors, 15 riders |
+| Provider | Client | Verified against |
+|---|---|---|
+| Paystack | ✅ real | ❌ sandbox never called |
+| Hubtel / Arkesel | ✅ real | ❌ never called; **sender-ID approval not started — longest lead item** |
+| Google Maps | ✅ real | ❌ never called; the 89.7% call saving is simulated |
+| Firebase FCM | ✅ real | ❌ never pushed to a real device |
+| S3 / R2 | ✅ real | ✅ **verified against live MinIO** — signatures accepted, bytes round-tripped |
+
+`docs/RUNNING.md` says how to drop each credential in and confirm it is live.
+
+### 4. Not started ❌
+
+- **CI** — workflow parked at `infra/ci-pending/ci.yml`; the token lacks
+  `workflow` scope, so it cannot be pushed to `.github/`
+- **Load test** — k6 planned, never run. No idea what breaks first under load
+- **Security review** — no external review, no dependency audit in CI
+- **Fraud controls** — designed (mock-location detection, POD geofence,
+  velocity checks) but not implemented
+- **Reconciliation drill** — the payout-halt path has unit tests but has never
+  been exercised as an operational rehearsal
 
 ---
 
 ## Honest completion estimate
 
-Measuring against a **pilot-ready** platform, not a feature-complete one:
+Measured against a **pilot** — one Accra zone, Food + Parcel, ~20 vendors —
+not against feature-completeness.
 
 | Layer | Done |
 |---|---|
-| Domain logic & data model | ~85% |
-| Service plumbing / transport | ~15% |
-| Admin dashboard | ~20% |
-| **Mobile apps** | **~2%** |
-| Ops, CI/CD, infrastructure | ~25% |
-| **Overall** | **~30–35%** |
+| Domain logic & data model | ~90% |
+| Service plumbing / transport | ~90% |
+| Third-party integration code | ~95% (verification ~20%) |
+| Admin dashboard | ~55% |
+| **Mobile apps** | **~45%** |
+| Ops, CI/CD, infrastructure | ~40% |
+| **Overall** | **~78%** |
 
-The first 35% was the part where mistakes are expensive and hard to undo — money handling, state machines, race conditions, the ledger. That work is genuinely solid. What remains is larger in volume but much better understood.
+The parts where mistakes are expensive and hard to undo — money handling,
+state machines, the ledger, race conditions — are done and tested. What is
+left is mostly volume and verification.
 
-**Remaining effort: roughly 3,000–4,000 engineering hours** → 5–7 months with 4–6 engineers.
+**The single biggest risk is not code.** It is that no third party has ever
+answered us. Hubtel sender-ID approval in particular is a multi-week external
+dependency that has not been started, and no amount of engineering shortens it.
 
 ---
 
 ## Recommended order
 
-1. **Plumbing first (2 sprints).** Gateway + BFFs + outbox relay + WebSocket. Nothing mobile can be built against libraries — the apps need real endpoints.
-2. **Customer app (3–4 sprints).** Proves the whole stack; the other two apps reuse its packages.
-3. **Vendor + rider apps (3–4 sprints).** Can run in parallel with different engineers.
-4. **Live-key verification (1 sprint).** Paystack sandbox, Hubtel, Google Maps — real calls, real payloads.
-5. **Hardening + pilot (4 sprints).**
+1. **Live-key verification.** Start Hubtel sender-ID approval *today*; run the
+   Paystack sandbox. This is where integration surprises live.
+2. **Map widget in the customer and rider apps.** The most visible gap.
+3. **Remaining repository layers** (tracking, messaging chat history).
+4. **k6 load test**, then fraud controls, then security review.
+5. **Pilot.**
 
 ---
 
-## What I'd want you to decide
+## What I would want you to decide
 
-1. **Plumbing before mobile, or a vertical slice?** I'd argue plumbing first — but a thin vertical slice (one screen, end to end, real HTTP) would de-risk the API contract earlier.
-2. **Live keys** — the sooner Paystack sandbox runs, the sooner integration surprises surface. Hubtel sender-ID approval is still the longest-lead item and hasn't been started.
-3. **Team.** Solo, this is well over a year. The mobile work parallelises cleanly across three engineers.
+1. **Which zone and which two services for the pilot?** Food + Parcel is the
+   assumption throughout; confirming it lets a lot of breadth work be cut.
+2. **When can Hubtel sender-ID approval start?** It is the longest lead item
+   and nothing in the code affects it.
+3. **A second pair of hands on mobile.** The three apps parallelise cleanly
+   and share packages; this is where a second engineer pays for themselves.

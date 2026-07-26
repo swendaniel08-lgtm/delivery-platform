@@ -28,24 +28,38 @@ const require_ = Module.prototype.require as any;
   return require_.apply(this, arguments as any);
 };
 
-const PORT = 34567;
-process.env.ADMIN_API_URL = `http://127.0.0.1:${PORT}`;
 process.env.ADMIN_API_TIMEOUT_MS = '400';
 
 let api: typeof import('../lib/api');
 
 before(async () => { api = await import('../lib/api.ts'); });
 
-/** A stand-in bff-admin. */
+/**
+ * A stand-in bff-admin on an EPHEMERAL port.
+ *
+ * An earlier version pinned one port for every test. Closing a listener does
+ * not release the port instantly, so consecutive tests intermittently bound
+ * to a socket the previous one was still shutting down and the suite failed
+ * about one run in three. Letting the OS allocate (`port 0`) removes the
+ * class of bug rather than adding a sleep.
+ */
 async function withServer(
   handler: (req: any, res: any) => void,
   body: (base: string) => Promise<void>,
 ) {
   const http = await import('node:http');
   const server = http.createServer(handler);
-  await new Promise<void>((r) => server.listen(PORT, '127.0.0.1', r));
-  try { await body(`http://127.0.0.1:${PORT}`); }
-  finally { await new Promise<void>((r) => server.close(() => r())); }
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const port = (server.address() as any).port as number;
+  const base = `http://127.0.0.1:${port}`;
+  const previous = process.env.ADMIN_API_URL;
+  process.env.ADMIN_API_URL = base;
+  try { await body(base); }
+  finally {
+    if (previous === undefined) delete process.env.ADMIN_API_URL;
+    else process.env.ADMIN_API_URL = previous;
+    await new Promise<void>((r) => server.close(() => r()));
+  }
 }
 
 const json = (res: any, status: number, payload: unknown) => {
@@ -206,7 +220,8 @@ describe('failures are shown, never faked', () => {
   });
 
   test('a connection refusal is an error, not silence', async () => {
-    // Nothing listening at all.
+    // Nothing listening at all: port 1 is never a bff-admin.
+    process.env.ADMIN_API_URL = 'http://127.0.0.1:1';
     await assert.rejects(() => api.fetchDashboard('tok'), (e: any) => {
       assert.equal(e.name, 'AdminApiError');
       return true;

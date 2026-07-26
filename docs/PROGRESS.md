@@ -868,3 +868,31 @@ audit log with an explanation rather than an error; killing admin-svc shows
 the dashboard". At no point does a failure render as a zero.
 
 Specs: 868 TS unit (+15), 146 TS integration, 450 Dart.
+
+## Session: shared notification dedupe (the duplicate-SMS bug)
+
+The outbox relay is at-least-once by design, so every event arrives more than
+once. Dedupe is what turns that into effectively-once — and it was a
+per-process `Set`. With two replicas, both saw the same event as new: the
+customer received two "your rider has arrived" texts and Hubtel billed us for
+both. Invisible in logs; visible only on the invoice.
+
+- `apps/svc-messaging/src/redis-dedupe-store.ts` — `SET NX EX`, one atomic
+  command, shared across replicas.
+- Fails OPEN when Redis is down, deliberately: a duplicate text costs pesewas,
+  a missed arrival costs cold food and a support call. Configurable.
+- Production now refuses to boot without `REDIS_URL` (exit 78).
+- `dedupe-redis.spec.ts` runs TWO dispatchers against one real Redis and
+  asserts exactly one push. **Mutation-tested**: swapping the old in-memory
+  store back in makes it fail, so the spec genuinely catches the bug.
+
+**Two testing bugs found while writing it:**
+- The liveness probe shelled out to `redis-cli`, which is not installed here.
+  It reported "no Redis" against a healthy server and every test skipped — a
+  green light that could not go red. Now a raw RESP PING over a socket.
+- `web-admin/test/api.spec.ts` pinned one port for every stub server. Closing
+  a listener does not release the port instantly, so the suite failed about
+  one run in three. Now ephemeral ports; `lib/api.ts` reads its base URL per
+  call rather than capturing it at import.
+
+Specs: 868 TS unit, 154 integration (+8), 34 platform e2e, 416 Dart.
