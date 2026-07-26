@@ -18,7 +18,7 @@ import {
 
 import { HealthModule } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  ValidationError, UnauthorizedError, NotFoundError,
+  ValidationError, UnauthorizedError, NotFoundError, isClientError,
 } from '../../../libs/platform/src/errors.ts';
 import {
   ServiceClient, settleWithFallback,
@@ -45,6 +45,7 @@ export interface CustomerUpstreams {
   pricing: ServiceClient;
   tracking: ServiceClient;
   payment: ServiceClient;
+  messaging: ServiceClient;
 }
 
 function requireFields(body: any, fields: string[]): void {
@@ -439,6 +440,48 @@ export class CustomerBffController {
     }
     return { lat: addr.latitude, lng: addr.longitude };
   }
+  /* ---------------- chat ---------------- */
+
+  /**
+   * The conversation for an order.
+   *
+   * A conversation nobody has started yet is EMPTY, not missing — the screen
+   * opens on a blank thread, which is the normal case, rather than an error
+   * banner.
+   */
+  @Get('orders/:id/chat')
+  async chatHistory(@Param('id') id: string, @Headers('authorization') auth?: string) {
+    this.claims(auth);
+    const token = bearer(auth);
+    try {
+      return await this.up.messaging.get(`/messaging/chat/${id}`, { bearerToken: token });
+    } catch (err) {
+      // A 403 is the closed 30-minute window and MUST reach the app, which
+      // renders it as "this conversation has closed". Only an outage is
+      // degraded here.
+      if (isClientError(err)) throw err;
+      return { orderId: id, messages: [], degraded: true };
+    }
+  }
+
+  /**
+   * Send a message.
+   *
+   * Never degraded: silently swallowing a send would show the customer their
+   * own message in the thread while the rider never receives it, which is
+   * worse than a visible failure they can retry.
+   */
+  @Post('orders/:id/chat')
+  async chatSend(
+    @Param('id') id: string, @Body() body: any,
+    @Headers('authorization') auth?: string,
+  ) {
+    this.claims(auth);
+    const token = bearer(auth);
+    return this.up.messaging.post(`/messaging/chat/${id}`, body ?? {}, {
+      bearerToken: token,
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -518,6 +561,7 @@ function menuItem(i: any) {
       })),
     })),
   };
+
 }
 
 /* ------------------------------------------------------------------ */

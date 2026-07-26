@@ -49,6 +49,7 @@ async function main() {
         tracking: c('svc-tracking', 'SVC_TRACKING_URL', 3006),
         identity: c('svc-identity', 'SVC_IDENTITY_URL', 3001),
         media: c('svc-media', 'SVC_MEDIA_URL', 3009),
+        messaging: c('svc-messaging', 'SVC_MESSAGING_URL', 3008),
       },
     }),
   });

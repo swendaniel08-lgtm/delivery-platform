@@ -23,6 +23,7 @@ class RiderHomeScreen extends StatelessWidget {
     this.onDeclineOffer,
     this.onNavigate,
     this.onRemit,
+    this.onChat,
     this.onTakeProof,
     this.onConfirmCash,
   });
@@ -38,6 +39,7 @@ class RiderHomeScreen extends StatelessWidget {
   final VoidCallback? onDeclineOffer;
   final VoidCallback? onNavigate;
   final VoidCallback? onRemit;
+  final VoidCallback? onChat;
   final VoidCallback? onTakeProof;
   final VoidCallback? onConfirmCash;
 
@@ -77,6 +79,7 @@ class RiderHomeScreen extends StatelessWidget {
                     cashConfirmed: cashConfirmed,
                     onAdvance: onAdvance,
                     onNavigate: onNavigate,
+                    onChat: onChat,
                     onTakeProof: onTakeProof,
                     onConfirmCash: onConfirmCash,
                   )
@@ -255,6 +258,7 @@ class _ActiveJobCard extends StatelessWidget {
     required this.cashConfirmed,
     this.onAdvance,
     this.onNavigate,
+    this.onChat,
     this.onTakeProof,
     this.onConfirmCash,
   });
@@ -264,6 +268,7 @@ class _ActiveJobCard extends StatelessWidget {
   final bool cashConfirmed;
   final void Function(String)? onAdvance;
   final VoidCallback? onNavigate;
+  final VoidCallback? onChat;
   final VoidCallback? onTakeProof;
   final VoidCallback? onConfirmCash;
 
@@ -362,11 +367,31 @@ class _ActiveJobCard extends StatelessWidget {
             ],
 
             const SizedBox(height: BesoncSpace.lg),
-            OutlinedButton.icon(
-              key: const Key('navigate'),
-              onPressed: onNavigate,
-              icon: const Icon(Icons.navigation_outlined),
-              label: const Text('Navigate'),
+            // Navigate and Message sit side by side. Chat is not a secondary
+            // action for a rider: Ghanaian addresses are landmarks, so
+            // "which gate?" is the question that actually completes the
+            // delivery, and asking it in-app avoids a call that exposes both
+            // phone numbers and costs both sides airtime.
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('navigate'),
+                    onPressed: onNavigate,
+                    icon: const Icon(Icons.navigation_outlined),
+                    label: const Text('Navigate'),
+                  ),
+                ),
+                const SizedBox(width: BesoncSpace.sm),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('rider-chat'),
+                    onPressed: onChat,
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    label: const Text('Message'),
+                  ),
+                ),
+              ],
             ),
 
             // Proof and cash confirmation appear only at the final step.

@@ -14,6 +14,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:besonc_api/besonc_api.dart';
+import 'package:besonc_chat/besonc_chat.dart';
 import 'package:besonc_auth/besonc_auth.dart';
 import 'package:besonc_auth/auth_screens.dart';
 import 'package:besonc_models/besonc_models.dart';
@@ -108,6 +109,10 @@ class RiderCoordinator {
 
   final BesoncApi _api;
   final RiderController controller;
+
+  /// The chat screen needs the same authenticated client the coordinator
+  /// polls with; there is no second source of credentials.
+  BesoncApi get api => _api;
 
   String riderName = '';
   Pesewas? walletBalance;
@@ -326,6 +331,7 @@ class _RiderRootState extends State<RiderRoot> {
           onConfirmCash: () => setState(() => _confirmations.cashConfirmed = true),
           onRemit: () => _notYet(context, 'Cash remittance'),
           onNavigate: () => _notYet(context, 'Navigation hand-off'),
+          onChat: () => _openChat(context, rider),
         );
       },
     );
@@ -359,9 +365,65 @@ class _RiderRootState extends State<RiderRoot> {
     }
   }
 
+  /// Message the customer about this job.
+  void _openChat(BuildContext context, RiderCoordinator rider) {
+    final orderId = rider.controller.leg?.orderId;
+    // No active leg means nobody to message. The button is only rendered
+    // inside the active-job card, so this is belt and braces.
+    if (orderId == null) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => RiderChatPage(api: rider.api, orderId: orderId),
+    ));
+  }
+
   void _notYet(BuildContext context, String what) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$what is coming in the next build')),
     );
   }
+}
+
+
+/// Chat with the customer for one job.
+class RiderChatPage extends StatefulWidget {
+  const RiderChatPage({super.key, required this.api, required this.orderId});
+
+  final BesoncApi api;
+  final String orderId;
+
+  @override
+  State<RiderChatPage> createState() => _RiderChatPageState();
+}
+
+class _RiderChatPageState extends State<RiderChatPage> {
+  late final ChatController _chat = ChatController(
+    orderId: widget.orderId,
+    me: ChatParty.rider,
+    transport: HttpChatTransport(
+      api: widget.api,
+      basePath: '/api/rider/jobs',
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _chat.load();
+    _chat.startPolling();
+  }
+
+  @override
+  void dispose() {
+    _chat.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Customer')),
+        body: ChatView(
+          controller: _chat,
+          emptyHint: 'Ask the customer for the gate, the floor, or a landmark.',
+        ),
+      );
 }

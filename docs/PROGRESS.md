@@ -969,3 +969,36 @@ Also plumbed the destination pin end to end: bff-customer now emits
 (0,0) — null island is in the Atlantic, 600km from Accra.
 
 Specs: 868 TS unit, 204 integration, 34 platform e2e, **489 Dart (+73)**.
+
+## Session: chat — and the reason it never worked
+
+`besonc_chat` was a stub containing a `Calculator` class. It is now order chat,
+shared by the customer and rider apps.
+
+**The bug underneath it.** messaging-svc had `GET`/`POST /messaging/chat/:id`,
+and `PgChatStore` had a well-built `openThread()`. Nothing in the entire
+platform ever CALLED `openThread`. Both routes began with "find the window,
+404 if absent", so every chat request in production would have 404'd forever.
+Proven by curl against the running service before fixing it.
+
+Unit tests all passed because each one pre-seeded a window in the in-memory
+store — the fixture created the thing production could never create.
+
+Also found: **neither BFF had a `messaging` upstream at all**, so even a fixed
+service was unreachable from any app. Same shape as the `payment` upstream
+missing from `CustomerUpstreams` earlier.
+
+- Threads now open lazily on first message, idempotently.
+- `GET` on an unstarted conversation returns an empty transcript, not 404 —
+  opening chat before anyone has spoken is the normal case.
+- Chat routes on both BFFs. A 403 (closed window) passes through to the app;
+  only an outage degrades.
+- `isClientError()` added to platform errors — BFFs must not swallow 4xx.
+
+**Mobile:** `ChatController` + `ChatView`, shared by both apps. Pending
+messages never look sent; failed ones stay on screen and are retryable in
+place; a closed window hides the composer and says why.
+
+Verified by mutation: breaking `stopPolling()` turns the suite red.
+
+Specs: 868 TS unit, 204 integration, 34 platform e2e, **521 Dart (+32)**.

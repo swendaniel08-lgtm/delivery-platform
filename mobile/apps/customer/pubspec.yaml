@@ -19,6 +19,8 @@ dependencies:
     path: ../../packages/besonc_auth
   besonc_tracking:
     path: ../../packages/besonc_tracking
+  besonc_chat:
+    path: ../../packages/besonc_chat
   path_provider: ^2.1.4
 
 dev_dependencies:

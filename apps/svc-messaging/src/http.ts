@@ -52,6 +52,18 @@ export class InMemoryDirectory implements Directory {
 
 export interface ChatStore {
   window(orderId: string, pair: ChatWindow['pair']): Promise<ChatWindow | null>;
+  /**
+   * Open the conversation if it is not open yet, and return it.
+   *
+   * Chat threads are created LAZILY, on first use. The alternative — opening
+   * one eagerly when an order is placed — means creating two dead threads for
+   * every order nobody messages about, which is most of them.
+   *
+   * Idempotent: two participants can tap "message" at the same instant.
+   */
+  ensureWindow(
+    orderId: string, pair: ChatWindow['pair'], customerId: string,
+  ): Promise<ChatWindow>;
   append(msg: {
     orderId: string; pair: string; from: string;
     body?: string; imageUrl?: string;
@@ -66,6 +78,16 @@ export class InMemoryChatStore implements ChatStore {
 
   async window(orderId: string, pair: ChatWindow['pair']) {
     return this.windows.get(`${orderId}:${pair}`) ?? null;
+  }
+  async ensureWindow(orderId: string, pair: ChatWindow['pair']) {
+    const key = `${orderId}:${pair}`;
+    const existing = this.windows.get(key);
+    if (existing) return existing;
+    const fresh: ChatWindow = {
+      orderId, pair, openedAt: new Date(), deliveredAt: null,
+    };
+    this.windows.set(key, fresh);
+    return fresh;
   }
   async append(msg: any) {
     this.seq += 1;
@@ -174,12 +196,19 @@ export class MessagingController {
     const c = this.claims(auth);
     const pair = pairFor(c.role, q.pair);
     const window = await this.chat.window(orderId, pair);
-    if (!window) throw new NotFoundError('Conversation');
+
+    // Reading a conversation nobody has started yet is not an error — it is
+    // an empty conversation. Returning 404 here made the chat screen show a
+    // failure banner every time a customer opened it before saying anything.
+    if (!window) return { orderId, pair, messages: [], open: true };
 
     const access = canChat(window, partyFor(c.role));
     if (!access.allowed) throw new ForbiddenError(access.reason);
 
-    return { orderId, pair, messages: await this.chat.history(orderId, pair) };
+    return {
+      orderId, pair, open: true,
+      messages: await this.chat.history(orderId, pair),
+    };
   }
 
   @Post('chat/:orderId')
@@ -189,8 +218,14 @@ export class MessagingController {
   ) {
     const c = this.claims(auth);
     const pair = pairFor(c.role, body?.pair);
-    const window = await this.chat.window(orderId, pair);
-    if (!window) throw new NotFoundError('Conversation');
+
+    // Open the thread on first message rather than requiring a separate call.
+    // Nothing in the platform called openThread, so EVERY chat request 404'd
+    // — chat was unreachable in production and no unit test noticed, because
+    // they all pre-seeded a window.
+    const window = await this.chat.ensureWindow(
+      orderId, pair, c.role === 'customer' ? c.sub : (body?.customerId ?? c.sub),
+    );
 
     // The 30-minute grace period after delivery (PDF §9). Enforced here so
     // a client holding an open socket cannot keep messaging forever.

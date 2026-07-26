@@ -17,7 +17,7 @@ import {
 
 import { HealthModule } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  ValidationError, UnauthorizedError, ForbiddenError, NotFoundError,
+  ValidationError, UnauthorizedError, ForbiddenError, NotFoundError, isClientError,
 } from '../../../libs/platform/src/errors.ts';
 import {
   ServiceClient, settleWithFallback,
@@ -36,6 +36,7 @@ export interface RiderUpstreams {
   tracking: ServiceClient;
   identity: ServiceClient;
   media: ServiceClient;
+  messaging: ServiceClient;
 }
 
 /** Events a rider may raise. Anything else is not in their vocabulary. */
@@ -253,6 +254,53 @@ export class RiderBffController {
       remittanceId: body.remittanceId ?? `rem_${Date.now()}`,
     }, { bearerToken: token });
   }
+
+  /* ---------------- chat ---------------- */
+
+  /**
+   * The conversation for a job.
+   *
+   * A rider reads this to find the gate. An unstarted conversation is EMPTY,
+   * not missing — opening the screen before anyone has spoken is the normal
+   * case, not an error.
+   */
+  @Get('jobs/:orderId/chat')
+  async chatHistory(
+    @Param('orderId') orderId: string, @Headers('authorization') auth?: string,
+  ) {
+    this.claims(auth);
+    const token = bearer(auth);
+    try {
+      return await this.up.messaging.get(`/messaging/chat/${orderId}`, {
+        bearerToken: token,
+      });
+    } catch (err) {
+      // A 403 means the 30-minute window closed and the rider must see that.
+      // Only an outage degrades to an empty thread.
+      if (isClientError(err)) throw err;
+      return { orderId, messages: [], degraded: true };
+    }
+  }
+
+  /**
+   * Send a message.
+   *
+   * Never degraded. A rider who thinks they have told the customer "I am at
+   * the junction, which turn?" while nothing was delivered is worse off than
+   * one who sees the send fail and calls instead.
+   */
+  @Post('jobs/:orderId/chat')
+  async chatSend(
+    @Param('orderId') orderId: string, @Body() body: any,
+    @Headers('authorization') auth?: string,
+  ) {
+    this.claims(auth);
+    const token = bearer(auth);
+    return this.up.messaging.post(`/messaging/chat/${orderId}`, body ?? {}, {
+      bearerToken: token,
+    });
+  }
+
 }
 
 /* ------------------------------------------------------------------ */

@@ -17,6 +17,8 @@ dependencies:
     path: ../../packages/besonc_api
   besonc_auth:
     path: ../../packages/besonc_auth
+  besonc_chat:
+    path: ../../packages/besonc_chat
   path_provider: ^2.1.4
   image_picker: ^1.1.2
 

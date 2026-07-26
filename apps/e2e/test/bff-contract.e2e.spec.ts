@@ -92,7 +92,7 @@ before(async () => {
       upstreams: {
         identity: client('identity'), catalogue: client('catalogue'),
         order: client('order'), pricing: client('pricing'), tracking: client('tracking'),
-        payment: client('payment'),
+        payment: client('payment'), messaging: client('messaging'),
       },
     }),
   });
@@ -112,7 +112,7 @@ before(async () => {
       upstreams: {
         order: client('order'), dispatch: client('dispatch'), payment: client('payment'),
         tracking: client('tracking'), identity: client('identity'),
-        media: client('media'),
+        media: client('media'), messaging: client('messaging'),
       },
     }),
   });

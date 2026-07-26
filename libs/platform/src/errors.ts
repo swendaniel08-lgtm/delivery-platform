@@ -15,6 +15,19 @@ export interface ProblemDetails {
   [key: string]: unknown;
 }
 
+/**
+ * Is this an error the CALLER caused, rather than an outage?
+ *
+ * BFFs degrade gracefully around upstream outages — an empty list is better
+ * than a broken screen. But a 4xx is a real answer that the app must see:
+ * "this chat has closed" and "messaging is down" look identical if both
+ * degrade to an empty thread, and only one of them is worth retrying.
+ */
+export function isClientError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
+
 export class AppError extends Error {
   constructor(
     readonly status: number,

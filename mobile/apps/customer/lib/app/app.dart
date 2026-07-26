@@ -8,6 +8,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:besonc_api/besonc_api.dart';
+import 'package:besonc_chat/besonc_chat.dart';
 import 'package:besonc_auth/besonc_auth.dart';
 import 'package:besonc_auth/auth_screens.dart';
 import 'package:besonc_models/besonc_models.dart';
@@ -496,13 +497,81 @@ class _TrackingPageState extends State<TrackingPage> {
         pickup: widget.order.pickup,
         onClose: () => Navigator.of(context).pop(),
         onCall: () => _notReady(context, 'Calling your rider'),
-        onChat: () => _notReady(context, 'Chat'),
+        onChat: () => _openChat(context),
         onCancel: () => _notReady(context, 'Cancelling'),
       );
+
+  /// Chat with the rider. This is how the last 200 metres get negotiated in
+  /// Accra — landmark addresses mean "which gate?" is a conversation, and the
+  /// alternative is a phone call that costs both sides money.
+  void _openChat(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChatPage(
+        deps: widget.deps,
+        orderId: widget.order.id,
+        riderName: _tracking.riderName,
+      ),
+    ));
+  }
 
   void _notReady(BuildContext context, String what) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$what is coming in the next build')),
     );
   }
+}
+
+
+/// The chat screen for one order.
+class ChatPage extends StatefulWidget {
+  const ChatPage({
+    super.key,
+    required this.deps,
+    required this.orderId,
+    this.riderName,
+  });
+
+  final AppDependencies deps;
+  final String orderId;
+  final String? riderName;
+
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
+  late final ChatController _chat = ChatController(
+    orderId: widget.orderId,
+    me: ChatParty.customer,
+    transport: HttpChatTransport(
+      api: widget.deps.api,
+      basePath: '/api/customer/orders',
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _chat.load();
+    _chat.startPolling();
+  }
+
+  @override
+  void dispose() {
+    // Stop the moment the screen closes, or a backgrounded app quietly eats
+    // the customer's data bundle.
+    _chat.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(widget.riderName ?? 'Your rider')),
+        body: ChatView(
+          controller: _chat,
+          counterpartyName: widget.riderName,
+          emptyHint: 'Tell your rider how to find you — the gate colour, a '
+              'landmark, or which floor.',
+        ),
+      );
 }

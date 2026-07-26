@@ -76,6 +76,7 @@ async function main() {
         pricing: c('svc-pricing', 'SVC_PRICING_URL', 3004),
         tracking: c('svc-tracking', 'SVC_TRACKING_URL', 3006),
         payment: c('svc-payment', 'SVC_PAYMENT_URL', 3007),
+        messaging: c('svc-messaging', 'SVC_MESSAGING_URL', 3008),
       },
     }),
   });

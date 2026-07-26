@@ -44,8 +44,10 @@ Future<RiderController> pump(
   void Function(String)? onAdvance,
   void Function(bool)? onToggleOnline,
   VoidCallback? onAcceptOffer,
+  VoidCallback? onChat,
+  Size surface = const Size(420, 1600),
 }) async {
-  await tester.binding.setSurfaceSize(const Size(420, 1600));
+  await tester.binding.setSurfaceSize(surface);
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   final clock = Clock();
@@ -71,6 +73,7 @@ Future<RiderController> pump(
       onAdvance: onAdvance,
       onToggleOnline: onToggleOnline,
       onAcceptOffer: onAcceptOffer,
+      onChat: onChat,
     ),
   ));
   await tester.pump();
@@ -169,6 +172,32 @@ void main() {
       await pump(tester, activeLeg: leg(state: 'picked_up'));
       expect(find.byKey(const Key('advance')), findsOneWidget);
       expect(find.text('Arrived at customer'), findsOneWidget);
+    });
+
+    testWidgets('the rider can MESSAGE the customer about the gate',
+        (tester) async {
+      // Ghanaian addresses are landmarks, so "which gate?" is the question
+      // that actually completes the delivery. Without this the rider has to
+      // phone, which costs both sides airtime and exposes both numbers.
+      var opened = false;
+      await pump(tester,
+          activeLeg: leg(state: 'picked_up'), onChat: () => opened = true);
+
+      await tester.tap(find.byKey(const Key('rider-chat')));
+      expect(opened, isTrue);
+    });
+
+    testWidgets('Navigate and Message fit side by side on a 360dp phone',
+        (tester) async {
+      // The row was added at 420dp, which is wider than the phone most
+      // Ghanaian riders carry. Two buttons in a Row is exactly the shape
+      // that has overflowed here before.
+      await pump(tester,
+          activeLeg: leg(state: 'picked_up'),
+          surface: const Size(360, 740));
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('rider-chat')), findsOneWidget);
+      expect(find.byKey(const Key('navigate')), findsOneWidget);
     });
   });
 

@@ -31,6 +31,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  besonc_chat:
+    dependency: "direct main"
+    description:
+      path: "../../packages/besonc_chat"
+      relative: true
+    source: path
+    version: "0.1.0"
   besonc_models:
     dependency: "direct main"
     description:

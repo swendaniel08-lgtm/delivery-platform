@@ -58,6 +58,22 @@ export class PgChatStore implements ChatStore {
   }
 
   /**
+   * Open the conversation if needed and return it. Satisfies ChatStore.
+   */
+  async ensureWindow(
+    orderId: string, pair: Pair, customerId: string,
+  ): Promise<ChatWindow> {
+    await this.openThread({ orderId, pair, customerId });
+    // Re-read rather than synthesise: if the thread already existed it may
+    // carry a delivered_at, and inventing `deliveredAt: null` here would
+    // silently reopen a chat that the grace period had already closed.
+    const w = await this.window(orderId, pair);
+    if (w) return w;
+    // Only reachable if the row vanished between the two statements.
+    return { orderId, pair, openedAt: new Date(), deliveredAt: null };
+  }
+
+  /**
    * Open a thread, or return the existing one.
    *
    * `ON CONFLICT ... DO UPDATE` rather than `DO NOTHING` because the latter
