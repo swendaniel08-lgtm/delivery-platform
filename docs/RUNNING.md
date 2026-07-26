@@ -241,3 +241,58 @@ Only 3000 should ever be reachable from outside. The services trust
 `x-user-id` and friends **because the gateway sets them** — it strips any
 client-supplied copy first. Exposing a service port directly bypasses that
 and lets anyone impersonate any user.
+
+## Verifying credentials: `make verify`
+
+Every provider client is real and wired to env vars. `make verify` answers the
+only question that matters before a pilot: **is this credential actually
+alive?**
+
+```bash
+cp .env.example .env      # fill in your keys
+make verify
+```
+
+It makes the cheapest real call per provider that proves the credential works,
+and prints the provider's own error text verbatim — that text is nearly always
+the actual answer.
+
+**Nobody needs to paste a key anywhere.** Every secret is redacted to
+`sk_test_…4f2a`, so the output is safe to share in a ticket or a chat. Fill in
+`.env` locally, run it, send the output.
+
+| Provider | What it calls | Charges? |
+|---|---|---|
+| Paystack | `GET /balance` | No — read-only |
+| Hubtel | `messages/send` with no recipient | **No message is sent**, nobody is billed |
+| Google Maps | one Distance Matrix element, Osu→Accra Mall | One element, negligible |
+| Firebase | mints an OAuth2 token | No — no notification is sent |
+| S3/R2 | presigned PUT of a tiny file, then deletes it | Negligible |
+
+Exit 0 means everything configured is working. Missing credentials are `SKIP`,
+never a failure — a partial environment is a normal state.
+
+### Two things it checks that are easy to get wrong
+
+- **Paystack**: whether the account has a **GHS balance**. A perfectly valid
+  key on an account that is not enabled for Ghana will pass authentication and
+  then fail every mobile-money charge.
+- **Hubtel**: authentication only. **Sender-ID approval is separate**, is a
+  manual multi-week review on Hubtel's side, and is the longest-lead item in
+  the whole launch. `make verify` cannot tell you it is done — check the
+  Hubtel portal.
+
+### Why the checks are shaped the way they are
+
+Two of them were wrong on the first attempt, in the same way:
+
+- The Paystack check listed banks — and reported a **completely fabricated key
+  as LIVE**, because `/bank` is a public endpoint that ignores the
+  Authorization header. A credential check that passes without a credential is
+  worse than no check; it manufactures confidence.
+- Hubtel reports authentication failure as `status: 4` inside an **HTTP 200**
+  body, exactly like Google Maps does. Reading the HTTP code alone reports a
+  dead key as healthy.
+
+Both now fail correctly against deliberately fake credentials, which is the
+only way to know a check works at all.

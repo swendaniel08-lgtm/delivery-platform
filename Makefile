@@ -16,7 +16,7 @@ COMPOSE := $(DOCKER) compose --env-file .env -f $(COMPOSE_FILE)
 
 .DEFAULT_GOAL := help
 .PHONY: help setup env test test-db s3-up s3-down test-mobile test-platform test-all run stop status logs \
-        build up down ps migrate clean admin-dev admin-build
+        build up down ps migrate clean admin-dev admin-build verify
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -71,6 +71,11 @@ status: ## Health of every local service
 
 logs: ## Tail one service, e.g. `make logs SVC=identity`
 	bash infra/scripts/run-stack.sh logs $(or $(SVC),gateway)
+
+## ------------------------------------------------------- integrations
+
+verify: ## Check whether the third-party credentials in .env are LIVE
+	@npx tsx infra/scripts/verify-integrations.ts
 
 ## ---------------------------------------------------------------- admin ui
 
