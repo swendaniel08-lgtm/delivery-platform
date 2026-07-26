@@ -15,7 +15,7 @@ DOCKER := $(shell if docker info >/dev/null 2>&1; then echo docker; else echo "s
 COMPOSE := $(DOCKER) compose --env-file .env -f $(COMPOSE_FILE)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup env test test-db test-mobile test-all run stop status logs \
+.PHONY: help setup env test test-db test-mobile test-platform test-all run stop status logs \
         build up down ps migrate clean
 
 help: ## Show this help
@@ -43,7 +43,10 @@ test-db: ## Integration specs (spins Postgres/Redis/RabbitMQ)
 test-mobile: ## Dart and Flutter specs
 	bash infra/scripts/test-mobile.sh
 
-test-all: test test-db test-mobile ## Everything
+test-platform: ## FULL-PLATFORM e2e — real services, real Postgres, one order
+	bash infra/scripts/test-platform.sh
+
+test-all: test test-db test-platform test-mobile ## Everything
 
 ## ------------------------------------------------- local (plain processes)
 

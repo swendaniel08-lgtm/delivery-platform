@@ -24,7 +24,7 @@ import {
 } from './sms/provider.ts';
 import { IdentityHttpModule } from './http.ts';
 import { PgUserRepository, PgSessionStore, RedisCounterStore } from './repository.ts';
-import { InMemoryCounterStore } from './otp/otp-service.ts';
+import { InMemoryCounterStore, DEFAULT_OTP_LIMITS } from './otp/otp-service.ts';
 
 const NAME = 'svc-identity';
 
@@ -102,6 +102,19 @@ async function main() {
       // a non-production environment.
       exposeCodeForTests: process.env.EXPOSE_OTP_CODES === 'true'
         && process.env.NODE_ENV !== 'production',
+      // Integration suites sign in many users from one IP. Never honoured
+      // in production, where the 20/hour ceiling is the SMS-spend defence.
+      ...(process.env.OTP_RELAX_LIMITS === 'true'
+        && process.env.NODE_ENV !== 'production'
+        ? {
+            otpLimits: {
+              ...DEFAULT_OTP_LIMITS,
+              perPhoneHour: 50, perPhoneDay: 200,
+              perIpHour: 5_000, perDeviceHour: 5_000,
+              resendCooldownSeconds: 0,
+            },
+          }
+        : {}),
     }),
   });
 

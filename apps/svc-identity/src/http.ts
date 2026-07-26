@@ -21,7 +21,10 @@ import { HealthModule } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
   ValidationError, UnauthorizedError, ForbiddenError,
 } from '../../../libs/platform/src/errors.ts';
-import { OtpService, InMemoryCounterStore, type CounterStore } from './otp/otp-service.ts';
+import {
+  OtpService, InMemoryCounterStore,
+  type CounterStore, type OtpLimits,
+} from './otp/otp-service.ts';
 import {
   TokenService, InMemorySessionStore, DEFAULT_TOKEN_CONFIG,
   type SessionStore, type Role, type Principal,
@@ -304,6 +307,14 @@ export interface IdentityDeps {
   accessSecret?: string;
   refreshSecret?: string;
   exposeCodeForTests?: boolean;
+  /**
+   * Override the five rate-limit axes.
+   *
+   * Exists for integration tests, which sign in a dozen users from ONE IP
+   * and would otherwise trip the 20/hour per-IP ceiling — a limit that is
+   * correct in production and must not be weakened there.
+   */
+  otpLimits?: OtpLimits;
 }
 
 @Module({})
@@ -315,7 +326,7 @@ export class IdentityHttpModule {
     const sessions = deps.sessions ?? (pool ? new PgSessionStore(pool) : new InMemorySessionStore());
     const users = deps.users ?? (pool ? new PgUserRepository(pool) : new InMemoryUserRepository());
 
-    const otp = new OtpService(counters, sms, undefined, {
+    const otp = new OtpService(counters, sms, deps.otpLimits, {
       ...(deps.exposeCodeForTests ? { exposeCodeForTests: true } : {}),
     });
     const tokens = new TokenService(
