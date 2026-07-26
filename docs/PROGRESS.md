@@ -20,7 +20,25 @@ Companion to `MASTER_PLAN.md` (the *what* and *why*). This is the *where are we*
 
 **Overall: P0–P4 complete. PLUMBING COMPLETE.**
 
-**1,305 specs green — 745 TS unit + 133 TS integration + 427 Dart.**
+**1,340 specs green — 746 TS unit + 133 integration + 34 full-platform + 427 Dart.**
+
+**Session of 2026-07-26 — the whole platform is verified together**
+
+Seventh block. Built `make test-platform`: eleven REAL services as separate
+processes against a real PostGIS, driving customer, vendor and rider flows
+from sign-up to settlement. **34/34 green.**
+
+Every previous test either stubbed its upstreams or exercised one service —
+which is exactly why the gateway prefix bug, the BFF contract mismatches
+and unenforced idempotency all shipped green.
+
+| Bug found by running the real thing | Impact |
+|---|---|
+| **Login never stamped `vendorId`** | Vendor app could not load a single screen — "No store is linked to this account" everywhere |
+| **Sold-out dishes stayed on the customer menu** | Customer carts a dish the kitchen cannot cook, discovers it after choosing payment |
+| In-memory repo ignored `ownerId`; Postgres honoured it | A test passing in memory would fail in production |
+| The e2e runner reported PASS when its own hook threw | A green light that cannot go red |
+| `SIGSTOP` hit the npx wrapper, not the server | Outage tests silently passed against a healthy service |
 
 **Session of 2026-07-25 — riders can deliver, vendors can manage a menu**
 
