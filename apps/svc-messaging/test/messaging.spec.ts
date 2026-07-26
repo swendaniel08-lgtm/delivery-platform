@@ -8,6 +8,7 @@ import {
   canChat, validateMessage, requestCallNumber, ChatValidationError,
   CHAT_GRACE_MINUTES, type DeliveryTarget, type ChatWindow,
 } from '../src/dispatcher.ts';
+import type { PushProvider } from '../src/dispatcher.ts';
 import { InMemorySmsProvider } from '../../svc-identity/src/sms/provider.ts';
 import { UpstreamError } from '../../../libs/platform/src/errors.ts';
 
@@ -112,6 +113,95 @@ describe('idempotent delivery', () => {
     await d.handle({ eventId: 'e1', eventType: 'order.picked_up', context: ctx, resolve: resolveAll });
     await d.handle({ eventId: 'e2', eventType: 'order.arrived', context: ctx, resolve: resolveAll });
     assert.equal(push.sent.length, 2);
+  });
+});
+
+describe('dead push tokens', () => {
+  /**
+   * FCM reporting UNREGISTERED is the ONLY signal we ever get that an app was
+   * uninstalled. If the dispatcher does not act on it, that token is retried
+   * on every order for the rest of the customer's life: wasted quota, wasted
+   * latency, and delivery statistics that quietly lie about our reach.
+   */
+  function deadTokenHarness(tokens = ['tok-dead']) {
+    const revoked: string[] = [];
+    const push: PushProvider = {
+      name: 'fcm',
+      async send({ token }) {
+        const err = new Error('push token is no longer valid (UNREGISTERED)');
+        err.name = 'PushTokenInvalidError';
+        (err as any).token = token;
+        throw err;
+      },
+    };
+    const sms = new InMemorySmsProvider();
+    const d = new NotificationDispatcher(push, sms, new InMemoryDedupeStore(), {
+      onDeadToken: async (t) => { revoked.push(t); },
+    });
+    return { d, revoked, sms, resolve: async () => target({ pushTokens: tokens }) };
+  }
+
+  test('a dead token is reported for pruning', async () => {
+    const { d, revoked, resolve } = deadTokenHarness();
+    await d.handle({ eventId: 'e1', eventType: 'order.arrived', context: ctx, resolve });
+    assert.deepEqual(revoked, ['tok-dead']);
+  });
+
+  test('the attempt is MARKED dead, not just failed', async () => {
+    // An ordinary failure is retried; a dead token never should be. The log
+    // has to be able to tell them apart after the fact.
+    const { d, resolve } = deadTokenHarness();
+    const out = await d.handle({ eventId: 'e1', eventType: 'order.arrived', context: ctx, resolve });
+    const attempt = out.notifications[0]!.attempts.find((a) => a.channel === 'push')!;
+    assert.equal(attempt.ok, false);
+    assert.equal(attempt.deadToken, true);
+  });
+
+  test('a dead token on a CRITICAL message still falls back to SMS', async () => {
+    // The customer's rider is at the gate. A dead token must not mean silence.
+    const { d, sms, resolve } = deadTokenHarness();
+    const out = await d.handle({ eventId: 'e1', eventType: 'order.arrived', context: ctx, resolve });
+    assert.equal(sms.sent.length, 1);
+    assert.equal(out.notifications[0]!.delivered, true);
+  });
+
+  test('each dead token in a multi-device account is reported', async () => {
+    const { d, revoked, resolve } = deadTokenHarness(['tok-a', 'tok-b']);
+    await d.handle({ eventId: 'e1', eventType: 'order.arrived', context: ctx, resolve });
+    assert.deepEqual(revoked.sort(), ['tok-a', 'tok-b']);
+  });
+
+  test('a failing pruner never breaks delivery', async () => {
+    // Cleanup is a cost optimisation. Letting it throw would turn a billing
+    // concern into a customer not hearing that their food arrived.
+    const push: PushProvider = {
+      name: 'fcm',
+      async send() {
+        const err = new Error('dead'); err.name = 'PushTokenInvalidError'; throw err;
+      },
+    };
+    const sms = new InMemorySmsProvider();
+    const d = new NotificationDispatcher(push, sms, new InMemoryDedupeStore(), {
+      onDeadToken: async () => { throw new Error('database is down'); },
+    });
+    const out = await d.handle({
+      eventId: 'e1', eventType: 'order.arrived', context: ctx, resolve: resolveAll,
+    });
+    assert.equal(out.notifications[0]!.delivered, true, 'SMS must still go out');
+  });
+
+  test('an ORDINARY push failure is not treated as a dead token', async () => {
+    // Revoking a good token because Google had a bad minute would silently
+    // unsubscribe that customer forever.
+    const revoked: string[] = [];
+    const push = new InMemoryPushProvider(new Error('FCM unavailable'));
+    const d = new NotificationDispatcher(push, new InMemorySmsProvider(),
+      new InMemoryDedupeStore(), { onDeadToken: async (t) => { revoked.push(t); } });
+    const out = await d.handle({
+      eventId: 'e1', eventType: 'order.arrived', context: ctx, resolve: resolveAll,
+    });
+    assert.deepEqual(revoked, []);
+    assert.notEqual(out.notifications[0]!.attempts[0]!.deadToken, true);
   });
 });
 

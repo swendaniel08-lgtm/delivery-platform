@@ -70,6 +70,8 @@ export interface DeliveryAttempt {
   error?: string;
   /** SMS cost driver. */
   segments?: number;
+  /** The provider says this token is permanently dead; it has been pruned. */
+  deadToken?: boolean;
 }
 
 export interface DispatchOutcome {
@@ -91,7 +93,16 @@ export class NotificationDispatcher {
     private readonly push: PushProvider,
     private readonly sms: SmsProvider,
     private readonly dedupe: DedupeStore,
-    private readonly opts: { dedupeTtlSeconds?: number } = {},
+    private readonly opts: {
+      dedupeTtlSeconds?: number;
+      /**
+       * Called when the push provider tells us a token is permanently dead
+       * (the app was uninstalled). This is the ONLY signal we ever get, so
+       * if we do not act on it the row lives forever and we pay a round trip
+       * on every order for a phone that no longer exists.
+       */
+      onDeadToken?: (token: string) => Promise<void> | void;
+    } = {},
   ) {}
 
   /**
@@ -150,7 +161,18 @@ export class NotificationDispatcher {
           attempts.push({ channel: 'push', ok: true, provider: this.push.name });
           pushSucceeded = true;
         } catch (err) {
-          attempts.push({ channel: 'push', ok: false, provider: this.push.name, error: (err as Error).message });
+          const e = err as Error;
+          attempts.push({
+            channel: 'push', ok: false, provider: this.push.name, error: e.message,
+            ...(e.name === 'PushTokenInvalidError' ? { deadToken: true } : {}),
+          });
+          if (e.name === 'PushTokenInvalidError' && this.opts.onDeadToken) {
+            // Pruning must never take down the notification path: a failure
+            // to clean up is a cost problem, a thrown error here would be a
+            // delivery problem.
+            try { await this.opts.onDeadToken(token); }
+            catch { /* best effort */ }
+          }
         }
       }
     }

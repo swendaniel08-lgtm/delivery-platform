@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import {
   ConfigError, required, optional, numberFrom, boolFrom, secret, redact,
   stageFrom, hubtelFrom, arkeselFrom, smsConfigFrom, paystackFrom, mapsFrom,
-  jwtFrom, s3From, describeConfig,
+  jwtFrom, s3From, firebaseFrom, describeConfig,
 } from '../src/config/env.ts';
 
 const prod = (over: Record<string, string> = {}) => ({ NODE_ENV: 'production', ...over });
@@ -234,6 +234,76 @@ describe('Maps', () => {
 
   test('production requires one', () => {
     assert.throws(() => mapsFrom(prod()), ConfigError);
+  });
+});
+
+describe('Firebase push', () => {
+  const SA = {
+    project_id: 'besonc-gh',
+    client_email: 'fcm@besonc-gh.iam.gserviceaccount.com',
+    private_key: '-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----\n',
+  };
+  const json = (o: object = {}) => JSON.stringify({ ...SA, ...o });
+
+  test('absent is allowed everywhere — no push is degraded, not broken', () => {
+    // Critical alerts fall back to SMS. That costs money, so the banner is
+    // loud, but it must not stop a deployment.
+    assert.equal(firebaseFrom(dev()), null);
+    assert.equal(firebaseFrom(prod()), null);
+  });
+
+  test('parses a downloaded service-account file', () => {
+    const fb = firebaseFrom(dev({ FIREBASE_SERVICE_ACCOUNT_JSON: json() }))!;
+    assert.equal(fb.projectId, 'besonc-gh');
+    assert.equal(fb.clientEmail, SA.client_email);
+  });
+
+  test('accepts base64, which is how most secret managers carry it', () => {
+    const b64 = Buffer.from(json()).toString('base64');
+    assert.equal(firebaseFrom(dev({ FIREBASE_SERVICE_ACCOUNT_JSON: b64 }))?.projectId, 'besonc-gh');
+  });
+
+  test('repairs \\n escapes mangled by a shell', () => {
+    const mangled = JSON.stringify({
+      ...SA, private_key: SA.private_key.replace(/\n/g, '\\n'),
+    });
+    const fb = firebaseFrom(dev({ FIREBASE_SERVICE_ACCOUNT_JSON: mangled }))!;
+    assert.ok(fb.privateKey.includes('\n'));
+  });
+
+  test('a bad key fails at BOOT, not at the first "rider has arrived"', () => {
+    assert.throws(
+      () => firebaseFrom(dev({ FIREBASE_SERVICE_ACCOUNT_JSON: json({ private_key: 'nope' }) })),
+      /PEM/,
+    );
+    assert.throws(
+      () => firebaseFrom(dev({ FIREBASE_SERVICE_ACCOUNT_JSON: '{{{' })),
+      ConfigError,
+    );
+    assert.throws(
+      () => firebaseFrom(dev({ FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({ project_id: 'x' }) })),
+      /client_email/,
+    );
+  });
+
+  test('the banner says when push is off AND why that costs money', () => {
+    assert.match(describeConfig('svc-messaging', dev()).join('\n'), /fall back to SMS/);
+  });
+
+  test('the banner names the project when push is live', () => {
+    assert.match(
+      describeConfig('svc-messaging', dev({ FIREBASE_SERVICE_ACCOUNT_JSON: json() })).join('\n'),
+      /push=fcm\(besonc-gh\)/,
+    );
+  });
+
+  test('the banner NEVER prints the private key', () => {
+    const lines = describeConfig('svc-messaging', dev({
+      FIREBASE_SERVICE_ACCOUNT_JSON: json({
+        private_key: '-----BEGIN PRIVATE KEY-----\nSUPERSECRETMATERIAL\n-----END PRIVATE KEY-----\n',
+      }),
+    })).join('\n');
+    assert.ok(!lines.includes('SUPERSECRETMATERIAL'));
   });
 });
 

@@ -804,3 +804,33 @@ lands in a real bucket and can be read back months later for a dispute.
   harness started eight containers at once.
 
 Specs: 812 TS unit (+39), 146 TS integration (+13), 450 Dart.
+
+## Session: Firebase push (FCM HTTP v1)
+
+messaging-svc can now actually push. Previously the port existed with only an
+in-memory stub, so every notification fell back to SMS — which works, but
+costs per message and drops routine status updates entirely.
+
+- `apps/svc-messaging/src/push/fcm.ts` — FCM HTTP v1, including the OAuth2
+  service-account flow (RS256 assertion signed with node:crypto). No
+  `firebase-admin`: it pulls gRPC and ~200 modules for one POST.
+- Access tokens are cached for the hour and a concurrent burst collapses to a
+  SINGLE mint — otherwise dinner-time peak puts a Google round trip in front
+  of every notification.
+- Dead tokens (UNREGISTERED / INVALID_ARGUMENT / NOT_FOUND / SENDER_ID_MISMATCH)
+  surface as a distinct `PushTokenInvalidError` and are soft-revoked in
+  `device_tokens.revoked_at`. This is the only signal we ever get that an app
+  was uninstalled; without acting on it the row is retried forever.
+- Transient failures are NOT treated as dead tokens — revoking a good token
+  because Google had a bad minute would unsubscribe that customer for good.
+- Critical vs routine differ where it matters: priority, TTL, APNs
+  interruption level, and separate Android channels so a user can silence
+  status updates without silencing "your rider is at the gate".
+- `firebaseFrom()` validates the PEM at BOOT and exits 78. The mangled-\n
+  service-account key is the classic deployment trap and fails with an opaque
+  OpenSSL error otherwise.
+
+Verified by running the service three ways: real key (boots, names project),
+mangled key (exit 78, actionable message), no key (boots, warns loudly).
+
+Specs: 853 TS unit (+41), 146 TS integration, 450 Dart.

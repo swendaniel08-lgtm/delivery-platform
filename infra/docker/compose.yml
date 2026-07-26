@@ -193,6 +193,7 @@ services:
     environment:
       <<: *service-env
       SERVICE_MAIN: apps/svc-messaging/src/main.ts
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
       PORT: 3008
       DATABASE_URL: postgresql://besonc:${POSTGRES_PASSWORD:-besonc_dev}@postgres:5432/messaging
 

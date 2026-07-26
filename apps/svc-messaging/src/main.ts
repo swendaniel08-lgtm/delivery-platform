@@ -20,7 +20,8 @@ import {
   createService, installShutdownHandlers, portFor,
 } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  infraFrom, jwtFrom, smsConfigFrom, describeConfig, ConfigError, numberFrom,
+  infraFrom, jwtFrom, smsConfigFrom, firebaseFrom, describeConfig, ConfigError,
+  numberFrom,
 } from '../../../libs/platform/src/config/env.ts';
 import { verifyAccessToken } from '../../../libs/platform/src/auth/verify.ts';
 import {
@@ -28,7 +29,11 @@ import {
   type SmsProvider,
 } from '../../svc-identity/src/sms/provider.ts';
 import { MessagingHttpModule } from './http.ts';
-import { NotificationDispatcher, InMemoryPushProvider, InMemoryDedupeStore } from './dispatcher.ts';
+import {
+  NotificationDispatcher, InMemoryPushProvider, InMemoryDedupeStore,
+  type PushProvider,
+} from './dispatcher.ts';
+import { FcmPushProvider } from './push/fcm.ts';
 
 const NAME = 'svc-messaging';
 
@@ -78,10 +83,50 @@ async function main() {
       + 'receive duplicate messages and we pay for each one.');
   }
 
+  /* ---- Push ---- */
+  const firebase = firebaseFrom();
+  let pushProvider: PushProvider;
+  if (firebase) {
+    pushProvider = new FcmPushProvider({
+      serviceAccount: {
+        project_id: firebase.projectId,
+        client_email: firebase.clientEmail,
+        private_key: firebase.privateKey,
+        token_uri: firebase.tokenUri,
+      },
+    });
+    console.log(`[${NAME}] push: FCM project ${firebase.projectId}`);
+  } else {
+    pushProvider = new InMemoryPushProvider();
+    console.warn(`[${NAME}] WARNING: no FIREBASE_SERVICE_ACCOUNT_JSON — push is a `
+      + 'stub. Critical alerts still reach people by SMS, but we pay per '
+      + 'message and routine status updates are silently dropped.');
+  }
+
+  /**
+   * A dead token is the ONLY signal we ever get that an app was uninstalled.
+   * Without pruning, that row is retried on every order of that customer's
+   * life, forever.
+   */
+  const onDeadToken = async (token: string) => {
+    if (!pool) return;
+    // Soft revoke, not DELETE. `device_tokens_user_idx` is partial on
+    // `revoked_at IS NULL`, so a revoked row costs nothing to skip, and
+    // keeping it lets us tell "this user uninstalled" apart from "this user
+    // never registered" when a delivery complaint comes in.
+    const res = await pool.query(
+      `UPDATE device_tokens SET revoked_at = now()
+        WHERE token = $1 AND revoked_at IS NULL`,
+      [token],
+    );
+    if (res.rowCount) console.log(`[${NAME}] revoked a dead push token`);
+  };
+
   const dispatcher = new NotificationDispatcher(
-    new InMemoryPushProvider(),   // FCM lands with FIREBASE_SERVICE_ACCOUNT_JSON
+    pushProvider,
     smsProvider,
     dedupe,
+    { onDeadToken },
   );
 
   const svc = await createService({

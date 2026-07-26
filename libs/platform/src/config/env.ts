@@ -306,6 +306,63 @@ export function s3From(env: Env = process.env): S3Env | null {
   };
 }
 
+export interface FirebaseEnv {
+  projectId: string;
+  clientEmail: string;
+  privateKey: string;
+  tokenUri: string;
+}
+
+/**
+ * Firebase Cloud Messaging.
+ *
+ * Absent, messaging-svc falls back to SMS for critical notifications — which
+ * works, but costs money per message and is the reason this is only a
+ * WARNING in production rather than a hard failure: no push is degraded,
+ * not broken.
+ *
+ * The parsing lives in the FCM adapter; this only decides whether we have
+ * something to parse, so a bad key fails at boot rather than at the first
+ * "your rider has arrived".
+ */
+export function firebaseFrom(env: Env = process.env): FirebaseEnv | null {
+  const raw = optionalOrNull('FIREBASE_SERVICE_ACCOUNT_JSON', env);
+  if (!raw) return null;
+
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    try { json = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')); }
+    catch {
+      throw new ConfigError(
+        'FIREBASE_SERVICE_ACCOUNT_JSON is neither JSON nor base64-encoded JSON. '
+        + 'Paste the whole downloaded service-account file, or base64 it.',
+      );
+    }
+  }
+
+  for (const f of ['project_id', 'client_email', 'private_key']) {
+    if (!json[f]) throw new ConfigError(`FIREBASE_SERVICE_ACCOUNT_JSON is missing "${f}"`);
+  }
+
+  const privateKey = String(json.private_key).replace(/\\n/g, '\n');
+  if (!privateKey.includes('BEGIN PRIVATE KEY')) {
+    throw new ConfigError(
+      'The Firebase private_key is not a PEM key. Pasted through a shell, its '
+      + '\\n escapes are often mangled — RS256 then fails with an opaque '
+      + 'OpenSSL error that looks like a revoked key.',
+    );
+  }
+
+  return {
+    projectId: String(json.project_id),
+    clientEmail: String(json.client_email),
+    privateKey,
+    tokenUri: String(json.token_uri ?? 'https://oauth2.googleapis.com/token'),
+  };
+}
+
 export interface MapsEnv { serverKey: string }
 
 export function mapsFrom(env: Env = process.env): MapsEnv | null {
@@ -406,6 +463,17 @@ export function describeConfig(name: string, env: Env = process.env): string[] {
 
   const maps = optionalOrNull('GOOGLE_MAPS_SERVER_KEY', env);
   lines.push(`[${name}] maps=${maps ? redact(maps) : 'NOT CONFIGURED (haversine fallback)'}`);
+
+  try {
+    const fb = firebaseFrom(env);
+    lines.push(
+      `[${name}] push=${fb
+        ? `fcm(${fb.projectId})`
+        : 'NOT CONFIGURED — critical alerts fall back to SMS, which costs per message'}`,
+    );
+  } catch (e) {
+    lines.push(`[${name}] push=MISCONFIGURED: ${(e as Error).message}`);
+  }
 
   try {
     const s3 = s3From(env);
