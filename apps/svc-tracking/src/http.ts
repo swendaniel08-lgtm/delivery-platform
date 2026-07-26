@@ -18,6 +18,7 @@ import {
 import type { Pool } from 'pg';
 
 import { HealthModule } from '../../../libs/platform/src/service/bootstrap.ts';
+import { PgTrackingStore } from './pg-tracking-store.ts';
 import {
   ValidationError, UnauthorizedError, ForbiddenError, NotFoundError,
 } from '../../../libs/platform/src/errors.ts';
@@ -286,7 +287,12 @@ export interface TrackingDeps {
 export class TrackingHttpModule {
   static forRoot(deps: TrackingDeps = {}): DynamicModule {
     const pool = deps.pool ?? null;
-    const store = deps.store ?? new InMemoryTrackingStore();
+    // An explicit store wins; otherwise a pool means PERSIST and no pool
+    // means memory. Previously a caller could pass a pool and still silently
+    // get the in-memory store — the service looked configured for Postgres
+    // and quietly threw every ping away.
+    const store = deps.store
+      ?? (pool ? new PgTrackingStore(pool) : new InMemoryTrackingStore());
     const hub = deps.hub ?? new TrackingHub();
     const verify: VerifyToken = deps.verifyToken ?? (() => {
       throw new UnauthorizedError('token verification is not configured');

@@ -896,3 +896,37 @@ both. Invisible in logs; visible only on the invoice.
   call rather than capturing it at import.
 
 Specs: 868 TS unit, 154 integration (+8), 34 platform e2e, 416 Dart.
+
+## Session: tracking and chat now persist
+
+Two of the remaining in-memory repository layers are gone. Both held data that
+matters after the fact, and both lost it on every redeploy.
+
+**tracking-svc** (`pg-tracking-store.ts`, migration `002_leg_projection.sql`)
+- Rider breadcrumb trails, rejected pings, geofence crossings and proof of
+  delivery now land in Postgres/PostGIS.
+- `active_legs` and `order_participants` are local projections, written from
+  domain events. `fencesFor()` runs on every ping from every online rider —
+  a cross-service HTTP call there is the first thing to fall over at peak.
+- A rider can hold only ONE active leg: a unique partial index, as the
+  database backstop behind the Redis accept-race arbitration.
+- The service now refuses to boot against a database without PostGIS, and
+  refuses to boot at all in production without `DATABASE_URL`.
+
+**messaging-svc** (`pg-chat-store.ts`)
+- Chat transcripts persist. They are dispute evidence — "the rider says I told
+  him to leave it at the gate" is settled by the transcript or not at all.
+- The 30-minute close window is stored, not computed, and a redelivered
+  `order.delivered` cannot extend it.
+
+**Bugs found:**
+- Both `forRoot()` factories accepted a `pool` and then used the in-memory
+  store anyway. The services looked configured for Postgres and silently
+  discarded everything.
+- `make migrate` globbed `001_*.sql` only, so any second migration never ran.
+  The service would then start against a schema missing the table it was about
+  to query. Now applies every migration in order.
+- `markDelivered` reused `$2` as both a timestamp and interval arithmetic —
+  Postgres 42P08. Caught only by running the SQL.
+
+Specs: 868 TS unit, **204 integration (+50)**, 34 platform e2e, 416 Dart.

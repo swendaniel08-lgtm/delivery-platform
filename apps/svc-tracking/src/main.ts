@@ -11,7 +11,7 @@ import {
   createService, installShutdownHandlers, portFor,
 } from '../../../libs/platform/src/service/bootstrap.ts';
 import {
-  infraFrom, jwtFrom, describeConfig, ConfigError,
+  infraFrom, jwtFrom, describeConfig, ConfigError, isProduction,
 } from '../../../libs/platform/src/config/env.ts';
 import { verifyAccessToken } from '../../../libs/platform/src/auth/verify.ts';
 import { TrackingHttpModule } from './http.ts';
@@ -33,8 +33,33 @@ async function main() {
       connectionTimeoutMillis: 5_000,
     });
     await pool.query('SELECT 1');
-    console.log(`[${NAME}] postgres connected`);
+
+    // PostGIS is not optional here. Every fence check and every distance is
+    // ST_DWithin on a GEOGRAPHY column; without the extension the service
+    // starts and then fails on the first ping, which is the worst possible
+    // moment to find out.
+    const { rows } = await pool.query<{ ok: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') AS ok`,
+    );
+    if (!rows[0]?.ok) {
+      throw new ConfigError(
+        'PostGIS is not installed on this database. tracking-svc stores rider '
+        + 'positions as GEOGRAPHY and computes geofences with ST_DWithin. '
+        + 'Run: CREATE EXTENSION postgis;  (image: postgis/postgis:16-3.4)',
+      );
+    }
+    console.log(`[${NAME}] postgres connected (PostGIS present) — tracks persist`);
   } else {
+    if (isProduction()) {
+      // The breadcrumb trail IS the evidence in a "the rider never came"
+      // dispute, and rejected pings are the only fraud signal we collect.
+      // Losing both on every deploy is not something to warn about.
+      throw new ConfigError(
+        'DATABASE_URL is required in production. Without it rider breadcrumb '
+        + 'trails and mock-location fraud signals are held in memory and lost '
+        + 'on every restart — a delivery dispute would have no evidence.',
+      );
+    }
     console.warn(`[${NAME}] WARNING: no DATABASE_URL — rider tracks are in memory and lost on restart.`);
   }
 

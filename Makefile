@@ -98,21 +98,31 @@ down: ## Stop the Docker stack (volumes are kept)
 ps: ## Container status
 	$(COMPOSE) ps
 
-# Migrations are not yet idempotent (no CREATE ... IF NOT EXISTS on the
-# enums), so re-running reports "already exists" errors. Those are noise;
-# anything else is real. The filter below says which is which rather than
-# printing a scary count.
+# Applies EVERY migration per service in filename order, not just 001. An
+# earlier version globbed 001_*.sql only, so any follow-up migration silently
+# never ran — the service then started against a schema missing the table it
+# was about to query.
+#
+# Re-running is expected: migrations use IF NOT EXISTS where they can, and
+# "already exists" from the older enum definitions is noise. Anything else is
+# real, and the filter below says which is which rather than printing a
+# frightening count.
 migrate: ## Apply every service migration to the Docker Postgres
 	@for entry in identity:identity catalogue:catalogue order:orders payment:payment \
 	              dispatch:dispatch tracking:tracking messaging:messaging \
 	              media:media admin:admin; do \
 	  svc=$${entry%%:*}; db=$${entry##*:}; \
-	  f=$$(ls apps/svc-$$svc/migrations/001_*.sql 2>/dev/null | head -1); \
-	  [ -z "$$f" ] && continue; \
-	  out=$$($(DOCKER) exec -i besonc-postgres-1 psql -U besonc -d $$db -q < "$$f" 2>&1 \
-	         | grep '^ERROR' | grep -v 'already exists' || true); \
-	  if [ -z "$$out" ]; then printf '  \033[32mOK\033[0m   %-11s\n' "$$db"; \
-	  else printf '  \033[31mFAIL\033[0m %-11s\n%s\n' "$$db" "$$out"; fi; \
+	  files=$$(ls apps/svc-$$svc/migrations/*.sql 2>/dev/null | sort); \
+	  [ -z "$$files" ] && continue; \
+	  fail=""; \
+	  for f in $$files; do \
+	    out=$$($(DOCKER) exec -i besonc-postgres-1 psql -U besonc -d $$db -q < "$$f" 2>&1 \
+	           | grep '^ERROR' | grep -v 'already exists' || true); \
+	    [ -n "$$out" ] && fail="$$fail\n  $$(basename $$f): $$out"; \
+	  done; \
+	  n=$$(echo "$$files" | wc -w); \
+	  if [ -z "$$fail" ]; then printf '  \033[32mOK\033[0m   %-11s (%s migrations)\n' "$$db" "$$n"; \
+	  else printf '  \033[31mFAIL\033[0m %-11s%b\n' "$$db" "$$fail"; fi; \
 	done
 
 clean: ## Stop everything and DELETE the Docker volumes

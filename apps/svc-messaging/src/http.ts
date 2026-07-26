@@ -20,6 +20,7 @@ import {
 import type { Pool } from 'pg';
 
 import { HealthModule } from '../../../libs/platform/src/service/bootstrap.ts';
+import { PgChatStore } from './pg-chat-store.ts';
 import {
   ValidationError, UnauthorizedError, ForbiddenError, NotFoundError,
 } from '../../../libs/platform/src/errors.ts';
@@ -252,7 +253,15 @@ export class MessagingHttpModule {
       providers: [
         { provide: DISPATCHER, useValue: deps.dispatcher },
         { provide: DIRECTORY, useValue: deps.directory ?? new InMemoryDirectory() },
-        { provide: CHAT_STORE, useValue: deps.chatStore ?? new InMemoryChatStore() },
+        {
+          provide: CHAT_STORE,
+          // An explicit store wins; otherwise a pool means PERSIST. Before
+          // this, passing a pool still silently produced the in-memory store
+          // — the service looked configured for Postgres while throwing every
+          // chat transcript away on restart.
+          useValue: deps.chatStore
+            ?? (deps.pool ? new PgChatStore(deps.pool) : new InMemoryChatStore()),
+        },
         {
           provide: VERIFY_TOKEN,
           useValue: deps.verifyToken ?? (() => {
