@@ -145,10 +145,54 @@ go red?* If you cannot answer, mutate it and find out.
 
 ---
 
+### OTP codes stored reversibly — HIGH
+
+`base64(phone:code)` — not a hash. Anyone reading the OTP store (backup,
+misconfigured bind, support dump) recovered every live code and could sign in
+as any user mid-flight. Labelled "placeholder"; nothing replaced it.
+
+**Fix:** HMAC-SHA256 keyed with `OTP_PEPPER`, phone bound in, production
+refuses to start without a pepper. See also the note below — my first
+regression spec for this could not fail.
+
+---
+
+## Checked and clean (round 2)
+
+### Vendor isolation
+
+`vendorId` is looked up server-side from the authenticated user at login and
+carried in the token; the vendor BFF reads it from the token and never from
+the request. `assertOwnStore()` re-checks order ownership and 404s on
+mismatch. **No change needed.**
+
+### OTP brute force
+
+Five wrong attempts burns the code; the correct code is then also refused,
+so an attacker cannot exhaust guesses and still use a leaked code. Per-phone
+(3/hr), per-device (5/hr), per-IP (20/hr) and global caps all enforced —
+verified live, including that the cap fires during testing.
+
+### Refresh token rotation
+
+Textbook. One use per token; replaying a rotated token is detected as reuse
+and revokes the **entire session family**, so a stolen token buys at most one
+refresh and locks the real user out of nothing they cannot recover by signing
+in again. Verified live: legitimate rotation works, replay 401s, and the
+newly-issued token is dead too.
+
+### Role self-assignment
+
+Signup roles arrive in the body (a new vendor has no other way to declare
+itself), so the allow-list is the boundary. `SIGNUP_ROLES` is exactly
+`customer`, `vendor_owner`, `rider`. Asking for `super_admin` grants nothing.
+Now pinned by a spec that fails if the list grows.
+
+---
+
 ## Still to audit
 
 - [ ] Rate limiting under real load (k6 not yet run)
-- [ ] Vendor BFF — can a vendor read another store's orders?
-- [ ] Identity — OTP brute force, token refresh rotation
 - [ ] Dependency audit in CI
 - [ ] COD remittance and the payout saga
+- [ ] The 18 flagged assertions — 3 sampled and genuine, 15 untriaged

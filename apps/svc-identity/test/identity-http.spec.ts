@@ -10,7 +10,8 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createService, type RunningService } from '../../../libs/platform/src/service/bootstrap.ts';
-import { IdentityHttpModule } from '../src/http.ts';
+import { IdentityHttpModule, SIGNUP_ROLES,
+} from '../src/http.ts';
 import { InMemorySmsProvider } from '../src/sms/provider.ts';
 import { InMemoryUserRepository } from '../src/repository.ts';
 
@@ -332,5 +333,62 @@ describe('addresses', () => {
     const r = await fetch(`${BASE}/users/me/addresses/${victim}`,
       { method: 'DELETE', headers: otherAuth });
     assert.equal(r.status, 404, 'tenant isolation: it does not exist for them');
+  });
+});
+
+
+/* ------------------------------------------------------------------ */
+/* Role self-assignment                                               */
+/* ------------------------------------------------------------------ */
+
+describe('a caller cannot promote themselves', () => {
+  /**
+   * The signup role arrives in the request body — a genuine new vendor or
+   * rider has no other way to say which they are. So the line between
+   * self-assignable and staff roles is the only thing between a phone number
+   * and an admin session.
+   *
+   * Asserted against the ALLOW-LIST rather than by driving HTTP once per
+   * role: the suite already spends 26 of its 20-per-IP-hour OTP budget, and a
+   * security test that fails because it ran out of rate limit is a security
+   * test that has stopped testing security.
+   */
+  test('the self-assignable set contains no staff role', () => {
+    const staff = [
+      'super_admin', 'ops_manager', 'finance', 'support',
+      'dispatcher', 'read_only', 'admin',
+    ];
+    for (const role of staff) {
+      assert.ok(!SIGNUP_ROLES.includes(role as any),
+        `'${role}' is self-assignable — anyone with a phone could become one`);
+    }
+  });
+
+  test('the set is exactly the three real signup paths', () => {
+    // Pinned deliberately. Adding to this list must be a conscious act with
+    // a failing test in front of it, not a quiet edit.
+    assert.deepEqual(
+      [...SIGNUP_ROLES].sort(),
+      ['customer', 'rider', 'vendor_owner'],
+    );
+  });
+
+  test('asking for a staff role over HTTP does not grant it', async () => {
+    // One request, spent on the highest-value target.
+    const phone = `02447${Math.floor(Math.random() * 90000 + 10000)}`;
+    const req = await post('/auth/otp/request', { phone },
+      { 'x-device-id': 'dev-escalate' });
+    const b1 = await req.json() as any;
+
+    if (!b1.debugCode) {
+      // Rate limited means no account was created, so nothing was granted.
+      assert.equal(req.status, 429);
+      return;
+    }
+
+    const res = await post('/auth/otp/verify',
+      { phone, code: b1.debugCode, role: 'super_admin' },
+      { 'x-device-id': 'dev-escalate' });
+    assert.notEqual((await res.json() as any)?.user?.role, 'super_admin');
   });
 });

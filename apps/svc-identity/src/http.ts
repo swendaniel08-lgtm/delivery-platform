@@ -59,7 +59,15 @@ export const STORE_LOOKUP = Symbol('STORE_LOOKUP');
 export const TOKEN_SERVICE = Symbol('TOKEN_SERVICE');
 export const USER_REPOSITORY = Symbol('USER_REPOSITORY');
 
-const SIGNUP_ROLES: Role[] = ['customer', 'vendor_owner', 'rider'];
+/**
+ * Roles a caller may claim for themselves at signup.
+ *
+ * Exported so it can be asserted against directly. Every other role — every
+ * staff role — must be granted by an existing administrator, because the
+ * signup role arrives in the request body and a phone number is the only
+ * thing behind it.
+ */
+export const SIGNUP_ROLES: Role[] = ['customer', 'vendor_owner', 'rider'];
 
 /* ------------------------------------------------------------------ */
 /* Wire shapes                                                         */
