@@ -223,3 +223,111 @@ describe('validation', () => {
     assert.equal(sms.sent.length, 0);
   });
 });
+
+
+/* ------------------------------------------------------------------ */
+/* OTP hashing at rest                                                 */
+/* ------------------------------------------------------------------ */
+
+describe('the stored OTP is not recoverable', () => {
+  test('THE CODE IS NEVER STORED IN A REVERSIBLE FORM', async () => {
+    // This was base64(phone:code) — reversible in one line. Anyone who could
+    // read Redis (a backup, a misconfigured bind, a support dump) recovered
+    // every live code and could sign in as any user mid-flight. It was
+    // labelled a placeholder and nothing replaced it, which is how
+    // placeholders reach production.
+    const { svc, store } = harness();
+    const { debugCode } = await svc.request(ctx({ phone: '0244000111' })) as any;
+    assert.ok(debugCode, 'test harness should expose the code');
+
+    // Read the REAL backing map.
+    //
+    // The first version of this assertion inspected `(store as any).map`,
+    // which does not exist — the field is `data`. It therefore serialised
+    // `undefined`, asserted against an empty string, and passed no matter
+    // what the service stored. Reverting hash() to base64 left it green:
+    // the one spec whose entire job was to catch that regression could not.
+    // Hence the explicit guard below that the dump is non-empty.
+    const data = (store as any).data as Map<string, { value: string }>;
+    assert.ok(data instanceof Map && data.size > 0,
+      'the spec is not reading the real store — it would pass vacuously');
+
+    const dump = JSON.stringify([...data.entries()]);
+    assert.ok(dump.length > 20, 'nothing was actually inspected');
+
+    assert.ok(!dump.includes(debugCode),
+      'the code appears in the store in clear');
+
+    // The exact previous implementation, and the generic shape of it.
+    const b64 = Buffer.from(`+233244000111:${debugCode}`).toString('base64');
+    assert.ok(!dump.includes(b64),
+      'the code is stored base64-encoded, which is not hashing');
+
+    // Anything base64-ish in the store must not decode to reveal the code.
+    for (const [, entry] of data.entries()) {
+      const hash = (() => {
+        try { return JSON.parse(entry.value).hash as string; } catch { return null; }
+      })();
+      if (!hash) continue;
+      for (const enc of ['base64', 'base64url'] as const) {
+        const decoded = Buffer.from(hash, enc).toString('utf8');
+        assert.ok(!decoded.includes(debugCode),
+          `the stored hash decodes (${enc}) to reveal the code: ${decoded}`);
+      }
+    }
+  });
+
+  test('a correct code still verifies', async () => {
+    // The hash change must not break the happy path.
+    const { svc } = harness();
+    const { debugCode } = await svc.request(ctx({ phone: '0244000222' })) as any;
+    const r = await svc.verify('0244000222', debugCode);
+    assert.equal(r.verified, true);
+  });
+
+  test('the hash is bound to the PHONE NUMBER', async () => {
+    // Otherwise a hash lifted from one account replays against another that
+    // happens to hold the same six digits.
+    const { svc } = harness();
+    const { debugCode } = await svc.request(ctx({ phone: '0244000333' })) as any;
+    await svc.request(ctx({ phone: '0244000444', deviceId: 'device-b' }));
+    await assert.rejects(
+      () => svc.verify('0244000444', debugCode),
+      ValidationError,
+    );
+  });
+
+  test('production REFUSES to run without a pepper', async () => {
+    // An unkeyed hash over a million six-digit codes is enumerable
+    // instantly, so the pepper is the whole defence. Refusing beats
+    // silently downgrading.
+    const previousEnv = process.env.NODE_ENV;
+    const previousPepper = process.env.OTP_PEPPER;
+    process.env.NODE_ENV = 'production';
+    delete process.env.OTP_PEPPER;
+    try {
+      const { svc } = harness();
+      await assert.rejects(
+        () => svc.request(ctx({ phone: '0244000555' })), /OTP_PEPPER/);
+    } finally {
+      process.env.NODE_ENV = previousEnv;
+      if (previousPepper !== undefined) process.env.OTP_PEPPER = previousPepper;
+    }
+  });
+
+  test('a configured pepper changes the stored hash', async () => {
+    // Two deployments with different peppers must not produce interchangeable
+    // hashes.
+    const a = new OtpService(
+      new InMemoryCounterStore(), new InMemorySmsProvider(),
+      DEFAULT_OTP_LIMITS, { exposeCodeForTests: true, pepper: 'pepper-a' },
+    );
+    const b = new OtpService(
+      new InMemoryCounterStore(), new InMemorySmsProvider(),
+      DEFAULT_OTP_LIMITS, { exposeCodeForTests: true, pepper: 'pepper-b' },
+    );
+    const ha = (a as any).hash('123456', '+233244000666');
+    const hb = (b as any).hash('123456', '+233244000666');
+    assert.notEqual(ha, hb);
+  });
+});

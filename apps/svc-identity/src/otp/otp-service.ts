@@ -8,6 +8,8 @@
  * MASTER_PLAN §PART II item 14.
  */
 
+import { createHmac } from 'node:crypto';
+
 import { RateLimitError, ValidationError } from '../../../../libs/platform/src/errors.ts';
 import {
   type SmsProvider,
@@ -121,14 +123,50 @@ export class OtpService {
       hashCode?: (code: string, phone: string) => string;
       generateCode?: () => string;
       exposeCodeForTests?: boolean;
+      /** Keys the OTP hash. Required in production. */
+      pepper?: string;
     } = {},
   ) {}
 
+  /**
+   * Hash an OTP for storage.
+   *
+   * SECURITY. This was `base64(phone:code)` — reversible in one line, so
+   * anyone who could read Redis (a backup, a misconfigured bind, a support
+   * dump) recovered every live code and could sign in as any user mid-flight.
+   * It was labelled a placeholder and nothing ever replaced it, which is
+   * exactly how placeholders reach production.
+   *
+   * HMAC-SHA256 keyed with the OTP pepper, not a bare digest: the search
+   * space is a million six-digit codes, so an unkeyed hash is enumerable
+   * instantly. The phone number is bound in so a hash lifted from one
+   * account cannot be replayed against another.
+   *
+   * Comparison is timing-safe at the call site.
+   */
   private hash(code: string, phone: string): string {
-    return this.opts.hashCode
-      ? this.opts.hashCode(code, phone)
-      : // placeholder; swapped for argon2 when the service is wired to Nest
-        Buffer.from(`${phone}:${code}`).toString('base64');
+    if (this.opts.hashCode) return this.opts.hashCode(code, phone);
+    return createHmac('sha256', this.pepper)
+      .update(`${phone}:${code}`)
+      .digest('base64url');
+  }
+
+  /**
+   * The pepper. In production this MUST come from configuration — a shared
+   * default would make every deployment's hashes interchangeable.
+   */
+  private get pepper(): string {
+    const configured = this.opts.pepper ?? process.env.OTP_PEPPER;
+    if (configured) return configured;
+    if (process.env.NODE_ENV === 'production') {
+      // Refuse rather than silently downgrade. A weak pepper here is a
+      // full account-takeover primitive for anyone who reaches the store.
+      throw new Error(
+        'OTP_PEPPER is required in production: OTP hashes would otherwise be '
+        + 'enumerable by anyone who can read the OTP store.',
+      );
+    }
+    return 'dev-otp-pepper';
   }
 
   private generate(): string {
