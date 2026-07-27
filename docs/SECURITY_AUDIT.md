@@ -109,6 +109,42 @@ service found these.
 
 ---
 
+---
+
+## A test that could not fail
+
+While fixing the OTP hashing I wrote this regression spec:
+
+```ts
+const dump = JSON.stringify([...(store as any).map ?? []]);
+assert.ok(!dump.includes(debugCode), 'the code appears in clear');
+```
+
+The field is `data`, not `map`. It serialised `undefined`, compared against an
+empty string, and passed regardless of what the service stored. Its entire
+purpose was to catch OTP codes being written reversibly — and when I reverted
+the fix to check, it stayed green.
+
+**A test that cannot go red is worse than no test.** No test is a known gap. A
+green one that cannot fail is a gap everyone believes is closed.
+
+`infra/scripts/find-vacuous-assertions.ts` now flags the two shapes that cause
+this: negative assertions on a subject never proven non-empty, and `as any`
+reaching into private fields. It reports rather than gates — 18 current hits,
+and the three highest-stakes ones were mutation-tested and are genuine:
+
+| Assertion | Mutation | Result |
+|---|---|---|
+| "NEVER prints a raw secret" | make `redact()` return the input | went red |
+| "the gate code leaked" | restore the chat vulnerability | went red |
+| "A SOLD-OUT ITEM IS HIDDEN" | stop filtering `isAvailable` | went red |
+
+The linter over-reports deliberately. The question it asks for each hit is the
+only one that matters: *if the code under test were reverted, would this line
+go red?* If you cannot answer, mutate it and find out.
+
+---
+
 ## Still to audit
 
 - [ ] Rate limiting under real load (k6 not yet run)
