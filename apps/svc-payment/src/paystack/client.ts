@@ -70,6 +70,38 @@ export interface PaystackTransport {
   get<T>(path: string): Promise<{ status: boolean; message: string; data: T }>;
 }
 
+/**
+ * Paystack rejects reserved TLDs — `.test`, `.local`, `.invalid` — with a bare
+ * "Invalid Email Address Passed" and no indication of which field is wrong.
+ *
+ * Found the first time we ran against a real sandbox key: our own probe used
+ * `customer@besonc.test` and was refused, while the address production
+ * actually sends (`<uuid>@customers.besonc.app`) was accepted. Worth guarding
+ * because the failure is silent at build time, arrives only from the network,
+ * and reads like a credentials problem rather than a data one.
+ */
+const RESERVED_TLDS = ['.test', '.local', '.invalid', '.example', '.localhost'];
+
+export function assertPaystackEmail(email: string): void {
+  const lower = email.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(lower)) {
+    throw new ValidationError({
+      email: [`"${email}" is not a valid email address for Paystack`],
+    });
+  }
+  const reserved = RESERVED_TLDS.find((t) => lower.endsWith(t));
+  if (reserved) {
+    throw new ValidationError({
+      email: [
+        `Paystack rejects the reserved TLD "${reserved}". It answers `
+        + '"Invalid Email Address Passed" with no field name, which reads '
+        + 'like a bad key. Use a real domain — production synthesises '
+        + '<userId>@customers.besonc.app.',
+      ],
+    });
+  }
+}
+
 export class HttpPaystackTransport implements PaystackTransport {
   constructor(
     private readonly secretKey: string,
@@ -124,6 +156,7 @@ export class PaystackClient {
     if (input.amount <= 0n) {
       throw new ValidationError({ amount: ['must be greater than zero'] });
     }
+    assertPaystackEmail(input.email);
     const reference = chargeReference(input.orderId, input.attempt);
     const provider = input.provider ?? momoProviderFor(input.phone);
 

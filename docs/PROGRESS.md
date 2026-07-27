@@ -1121,3 +1121,36 @@ All three fixes mutation-tested. Specs: **906 TS unit (+24)**.
 
 **Docker disappeared from the sandbox mid-session — the db and platform e2e
 suites could not be re-run after these changes and must be before release.**
+
+## Session: FIRST LIVE THIRD PARTY — Paystack verified
+
+Paystack test keys arrived and were run against the real sandbox. This is the
+first time any provider has actually answered us.
+
+**Verified live:**
+- `make verify` → LIVE, test mode, **GHS balance available** (the Ghana
+  enablement check — a valid key on a non-Ghana account authenticates fine and
+  then fails every momo charge)
+- All three mobile money networks enabled: **MTN, Vodafone, AirtelTigo**
+- A real GHS 81.50 transaction initialised on the account — the canonical
+  order from MASTER_PLAN §20, 8150 pesewas, checkout URL returned
+- Webhook signed with the real secret → `accepted, handled`
+- Replay of the same event → `duplicate: true, handled: false`
+- Forged signature, tampered amount, missing signature → all 401
+
+**Integration finding: Paystack rejects reserved TLDs.** `customer@besonc.test`
+returns a bare "Invalid Email Address Passed" — no field name, reads like a
+credentials problem. Production is correct (the BFF synthesises
+`<userId>@customers.besonc.app`, which the sandbox accepts), but there was no
+guard. `assertPaystackEmail()` now fails at the call site with an explanation
+instead of at Paystack with a shrug.
+
+**Two false alarms worth recording**, both mine, both from stale state rather
+than code:
+- A "rejected" genuine webhook was a stale payment-svc process still holding
+  a placeholder key from an earlier test. Services read the PROCESS
+  environment, never `.env`.
+- The follow-up boot failed on ECONNREFUSED because `.env` supplies a real
+  `DATABASE_URL` and no Postgres was running.
+
+Specs: **929 TS unit (+15)**.
