@@ -331,3 +331,59 @@ make test-platform              # three lanes in sequence (default)
 E2E_LANES=all make test-platform   # one process — use this in CI, needs ~4GB
 E2E_LANE=rider npx tsx apps/e2e/test/platform.e2e.spec.ts   # one lane
 ```
+
+## Receiving Paystack webhooks in development
+
+Paystack pushes from its own servers, so it cannot reach localhost. The
+webhook is the **source of truth for payment** — a client callback can be
+forged, a signed webhook cannot — so it is the one integration that has to be
+proven over a real public URL before launch.
+
+```bash
+# 1. gateway must be listening first (a tunnel to nothing returns 502)
+set -a; . ./.env; set +a
+PORT=3000 npx tsx apps/gateway/src/main.ts &
+
+# 2. expose it
+NGROK_AUTHTOKEN=... NGROK_DOMAIN=your-name.ngrok-free.dev \
+  bash infra/scripts/dev-tunnel.sh
+
+# 3. prove it before pointing Paystack at it
+bash infra/scripts/verify-webhook.sh https://your-name.ngrok-free.dev
+```
+
+Then in **Paystack → Settings → API Keys & Webhooks**:
+
+| Field | Value |
+|---|---|
+| Test Webhook URL | `https://<domain>/api/webhooks/paystack` |
+| Test Callback URL | **leave blank** |
+
+The callback is deliberately empty. The browser redirect is client-controlled
+and must never move money; only the signed webhook does.
+
+`PAYSTACK_WEBHOOK_SECRET` can stay unset — Paystack signs with the secret key
+and the config defaults to it.
+
+### Why verify-webhook.sh sends four requests
+
+Reachability is the least interesting property. An endpoint that accepts
+everything is worse than one that is down, because a forged `charge.success`
+is a free order. All four verdicts must hold:
+
+| Request | Expected |
+|---|---|
+| genuine signature | 201 accepted |
+| same event again | 201 **duplicate**, not handled twice |
+| forged signature | 401 |
+| no signature | 401 |
+
+A 201 on a forged signature means something in the chain re-serialised the
+body — the HMAC covers raw bytes, not parsed JSON, so a proxy that
+pretty-prints the payload silently breaks verification.
+
+### Reserved domain
+
+Use one. Without `--domain` ngrok issues a new hostname on every restart and
+the Paystack dashboard has to be edited each time — which is how a stale URL
+ends up in production config.
