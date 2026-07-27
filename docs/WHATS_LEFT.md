@@ -1,6 +1,6 @@
 # What's Left — honest status
 
-**Date:** 2026-07-26 (later) · Measured this session, not recalled.
+**Date:** 2026-07-27 · Measured this session, not recalled.
 
 Everything below was re-checked by running it. Where a previous version of
 this file was optimistic or simply out of date, it has been corrected —
@@ -14,7 +14,7 @@ media-svc as unbuilt long after they were working.
 | Area | Measured | Status |
 |---|---|---|
 | Backend + shared libs | ~31,600 lines TS | ✅ Thorough, well-tested |
-| Tests | **1,627 green** (868 TS unit + 204 integration + **34 full-platform e2e** + 521 Dart) | ✅ Real, all re-run today |
+| Tests | **1,718 green** (914 TS unit + 222 integration + **34 full-platform e2e** + 548 Dart) | ✅ All four suites re-run today |
 | **Full-platform e2e** | 11 real services + real PostGIS; customer, vendor AND rider paths | ✅ `make test-platform` — 34/34 |
 | SQL migrations | 9 services | ✅ Constraints enforce the invariants |
 | **Runnable processes** | **15/15 boot healthy** | ✅ `make run` |
@@ -66,7 +66,27 @@ that we paid for twice. It is now Redis-backed and shared, verified with two
 dispatchers against one real Redis, and production refuses to start without
 `REDIS_URL`.
 
-### 3. Verification against live third parties ❌
+### 3. Security ✅ audited, 5 holes closed
+
+An exploit-first audit — attacks written and run against live services, not
+code review. Findings in `docs/SECURITY_AUDIT.md`:
+
+| Finding | Severity |
+|---|---|
+| Any signed-in customer could read/post in **any order's chat** | critical |
+| Media objects: owner denied, **attacker granted** (substring check) | high |
+| **Admin privilege escalation** — caller chose its own permission | high |
+| **OTP codes stored reversibly** (base64, not a hash) | high |
+| Prototype pollution in the permission lookup | medium |
+
+Verified clean, no change needed: Paystack webhook signatures, refresh-token
+rotation with reuse detection, OTP brute-force limits, vendor isolation, role
+self-assignment, gateway header trust.
+
+Every fix is mutation-tested. One of my own regression specs **could not
+fail** — `infra/scripts/find-vacuous-assertions.ts` now hunts that shape.
+
+### 4. Verification against live third parties ❌
 
 Every client is real and wired to env vars. None has been run against real
 credentials, because none exist in this environment.
@@ -81,12 +101,13 @@ credentials, because none exist in this environment.
 
 `docs/RUNNING.md` says how to drop each credential in and confirm it is live.
 
-### 4. Not started ❌
+### 5. Not started ❌
 
 - **CI** — workflow parked at `infra/ci-pending/ci.yml`; the token lacks
   `workflow` scope, so it cannot be pushed to `.github/`
 - **Load test** — k6 planned, never run. No idea what breaks first under load
-- **Security review** — no external review, no dependency audit in CI
+- **Dependency audit in CI** — no `npm audit` gate yet
+- **External security review** — my audit is not a substitute
 - **Fraud controls** — designed (mock-location detection, POD geofence,
   velocity checks) but not implemented
 - **Reconciliation drill** — the payout-halt path has unit tests but has never
@@ -106,8 +127,8 @@ not against feature-completeness.
 | Third-party integration code | ~95% (verification ~20%) |
 | Admin dashboard | ~55% |
 | **Mobile apps** | **~58%** |
-| Ops, CI/CD, infrastructure | ~40% |
-| **Overall** | **~82%** |
+| Ops, CI/CD, infrastructure | ~45% |
+| **Overall** | **~85%** |
 
 The parts where mistakes are expensive and hard to undo — money handling,
 state machines, the ledger, race conditions — are done and tested. What is
