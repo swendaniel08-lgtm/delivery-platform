@@ -30,7 +30,8 @@ import { InMemoryLedgerRepository } from './memory-ledger-repository.ts';
 import {
   PaystackWebhookProcessor, InMemoryWebhookStore, type WebhookHandlers,
 } from './paystack/webhook.ts';
-import { PaystackClient, HttpPaystackTransport } from './paystack/client.ts';
+import { PaystackClient, HttpPaystackTransport, orderIdFromReference,
+} from './paystack/client.ts';
 
 const NAME = 'svc-payment';
 
@@ -137,9 +138,16 @@ async function main() {
 }
 
 /** `order:<uuid>:capture` → `<uuid>`. Returns null for anything else. */
+/**
+ * Delegates to the inverse of `chargeReference`.
+ *
+ * This used to carry its own regex for a format the client never produced.
+ * Keeping the pair in one file is the point: a reference scheme with two
+ * independent definitions will drift, and the failure is silent — money
+ * taken and never captured.
+ */
 function orderIdFrom(reference: string): string | null {
-  const m = /^order:([^:]+):/.exec(reference);
-  return m ? m[1]! : null;
+  return orderIdFromReference(reference);
 }
 
 main().catch((err) => {

@@ -33,8 +33,42 @@ export function momoProviderFor(e164: string): MomoProvider {
  * Deterministic reference so a retry can never double-charge.
  * Paystack rejects a duplicate reference, which is exactly the behaviour we want.
  */
+/**
+ * Build the Paystack transaction reference for an order attempt.
+ *
+ * Paystack restricts references to alphanumerics and `-`, `.`, `=` — a colon
+ * is refused with "Invalid character in transaction reference". Verified
+ * against the live sandbox, which is the only reason we know: it is a runtime
+ * rejection, not a documented type.
+ *
+ * The hyphens are stripped from the UUID so the id survives the round trip
+ * without needing an allowed separator of its own.
+ */
 export function chargeReference(orderId: string, attempt: number): string {
   return `ord_${orderId.replace(/-/g, '')}_a${attempt}`;
+}
+
+/**
+ * Recover the order id from a reference produced by `chargeReference`.
+ *
+ * MUST stay the exact inverse. These two drifted apart: the client emitted
+ * `ord_<hex>_a1` while the webhook handler parsed `/^order:([^:]+):/`, so
+ * every genuine `charge.success` logged "unrecognised reference" and returned
+ * BEFORE touching the ledger. Payments would have been taken from customers
+ * and never captured — silently, with a warning nobody reads.
+ *
+ * Caught by pushing a real Paystack webhook through the whole path and then
+ * looking at the ledger table, which was empty.
+ */
+export function orderIdFromReference(reference: string): string | null {
+  const m = /^ord_([0-9a-f]{32})_a\d+$/i.exec(reference);
+  if (!m) return null;
+  const hex = m[1]!;
+  // Restore the canonical UUID hyphenation: 8-4-4-4-12.
+  return [
+    hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16),
+    hex.slice(16, 20), hex.slice(20),
+  ].join('-');
 }
 
 export type ChargeStatus =

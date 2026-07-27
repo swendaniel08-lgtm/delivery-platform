@@ -1154,3 +1154,48 @@ than code:
   `DATABASE_URL` and no Postgres was running.
 
 Specs: **929 TS unit (+15)**.
+
+## Session: Paystack webhook delivered END TO END — and a payment-losing bug
+
+Paystack pushed a real `charge.success` to our tunnel and it went all the way
+to a balanced ledger. First time the full money path has run on real
+infrastructure.
+
+```
+[webhook] paystack inbound ip=52.31.139.75 known=true signed=true
+[webhook] handled=true duplicate=false
+[svc-payment] captured order=3f2a9c1e-…-2b6d8a4c0e97 amount=8150
+
+txn 1: debit=8150 credit=8150   BALANCED
+txn 2: debit=159  credit=159    BALANCED   (Paystack's fee, booked not netted)
+```
+
+The source IP was `52.31.139.75` — one of the three documented Paystack
+addresses — and the allowlist recognised it.
+
+### The bug this found: every payment would have been lost
+
+`chargeReference()` emitted `ord_<32hex>_a1`. `orderIdFrom()` in main.ts
+parsed `/^order:([^:]+):/`. **Different formats.** So every genuine
+`charge.success` resolved to a null order id, logged "unrecognised reference",
+and returned *before* `ledger.capture()`.
+
+The customer is charged. The platform never records it. Nothing throws,
+nothing 500s, the webhook still answers 200 — the only trace is a
+`console.warn` nobody reads.
+
+No unit test could have caught it: both halves were individually correct, they
+just described different formats. It took pushing a real webhook through and
+then looking at an empty ledger table.
+
+`orderIdFromReference()` now lives beside its generator and is asserted to be
+its exact inverse.
+
+### Also learned from the live sandbox
+
+Paystack rejects references containing a colon — "Invalid character in
+transaction reference", alphanumerics and `-.=` only. Our generator was
+already safe; the parser was describing a format Paystack would never have
+accepted in the first place.
+
+Specs: **959 TS unit (+17)**.
