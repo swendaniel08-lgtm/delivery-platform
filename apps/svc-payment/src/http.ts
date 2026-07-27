@@ -32,6 +32,7 @@ import { InMemoryLedgerRepository } from './memory-ledger-repository.ts';
 import { PgLedgerRepository } from './pg-ledger-repository.ts';
 import { PaystackWebhookProcessor } from './paystack/webhook.ts';
 import type { PaystackClient } from './paystack/client.ts';
+import { clientIpFrom, isPaystackIp, shouldEnforce } from './paystack/source-ip.ts';
 
 export const LEDGER = Symbol('LEDGER');
 export const WEBHOOK_PROCESSOR = Symbol('WEBHOOK_PROCESSOR');
@@ -89,13 +90,51 @@ export class WebhookController {
    * JSON reorders keys and silently breaks every signature.
    */
   @Post('webhooks/paystack')
-  async paystack(@Req() req: any, @Headers('x-paystack-signature') signature?: string) {
+  async paystack(
+    @Req() req: any,
+    @Headers('x-paystack-signature') signature?: string,
+    @Headers('x-forwarded-for') forwardedFor?: string,
+  ) {
+    // Log EVERY inbound attempt before validating anything.
+    //
+    // Paystack retries a failed delivery hourly for 10 hours in test mode and
+    // for 72 hours in live. When a delivery fails the only question that
+    // matters is "did it reach us at all?" — and without this line the answer
+    // is invisible, which is exactly the hole we fell into when the tunnel
+    // was down and four real attempts vanished with no trace on our side.
+    const ip = clientIpFrom(req?.socket?.remoteAddress, forwardedFor);
+    const fromPaystack = isPaystackIp(ip);
+    console.log(
+      `[webhook] paystack inbound ip=${ip ?? 'unknown'} `
+      + `known=${fromPaystack} signed=${Boolean(signature)}`,
+    );
+
+    // The documented second line of defence. Off unless explicitly enabled:
+    // in development the peer is the tunnel, not Paystack, so enforcing here
+    // would reject every genuine event.
+    if (shouldEnforce() && !fromPaystack) {
+      console.warn(`[webhook] REFUSED: ${ip} is not a documented Paystack IP`);
+      throw new UnauthorizedError('Untrusted source');
+    }
+    if (!fromPaystack && signature) {
+      // Worth saying out loud rather than silently trusting the signature —
+      // a valid signature from an unexpected address means a leaked key.
+      console.warn(
+        `[webhook] signed request from ${ip}, which is not a documented `
+        + 'Paystack address. Genuine behind a proxy; suspicious otherwise.',
+      );
+    }
+
     if (!signature) throw new UnauthorizedError('Missing signature');
     const raw: string = typeof req.rawBody === 'string'
       ? req.rawBody
       : JSON.stringify(req.body ?? {});
 
     const outcome = await this.processor.handle(raw, signature);
+    console.log(
+      `[webhook] handled=${(outcome as any)?.handled} `
+      + `duplicate=${(outcome as any)?.duplicate}`,
+    );
     // Always 200 once the signature is good: a non-2xx makes Paystack retry
     // an event we have already durably recorded.
     return outcome;
