@@ -144,7 +144,10 @@ describe('reading an object back', () => {
   test("another rider cannot read someone else's proof photo", async () => {
     const key = await upload('proof_of_delivery', 'r1', 'rider');
     const r = await get(`/media/objects/${encodeURIComponent(key)}/url`, as('r2', 'rider'));
-    assert.equal(r.status, 403);
+    // 404, not 403. The object key embeds the ORDER id, so "this exists but
+    // is not yours" tells a stranger that an order id is real. A stranger's
+    // key and a nonexistent key must be indistinguishable.
+    assert.equal(r.status, 404);
   });
 
   test('A RIDER CANNOT RE-READ THEIR OWN GHANA CARD', async () => {

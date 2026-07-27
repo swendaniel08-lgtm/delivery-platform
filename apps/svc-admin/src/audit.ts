@@ -23,6 +23,83 @@ export const REASON_REQUIRED_ACTIONS = new Set([
 
 export const MIN_REASON_LENGTH = 10;
 
+/**
+ * The permission each admin action requires.
+ *
+ * SECURITY. `ability` and `subject` used to arrive in the REQUEST BODY, and
+ * the ability gate was evaluated against whatever the caller sent. So a
+ * read_only admin could perform a refund simply by declaring a harmless
+ * permission alongside it:
+ *
+ *   POST /admin/actions
+ *   { "action": "payment.refund", "ability": "read", "subject": "Report", … }
+ *   -> 201, refund recorded
+ *
+ * Asking the caller which permission to check is the same as not checking.
+ * The action name is the only thing the caller may choose; what that action
+ * REQUIRES is decided here, on the server.
+ *
+ * An unlisted action is refused rather than defaulted — a new action must be
+ * a deliberate entry in this table, not something that inherits whatever
+ * happens to be permissive.
+ */
+export const ACTION_PERMISSIONS: Record<string, { ability: Action; subject: Subject }> = {
+  'payment.refund':      { ability: 'refund',  subject: 'Payment' },
+  'payment.payout':      { ability: 'payout',  subject: 'Payout' },
+  'payment.retry':       { ability: 'update',  subject: 'Payment' },
+
+  'vendor.suspend':      { ability: 'suspend', subject: 'Vendor' },
+  'vendor.approve':      { ability: 'approve', subject: 'Vendor' },
+  'vendor.update':       { ability: 'update',  subject: 'Vendor' },
+
+  'rider.suspend':       { ability: 'suspend', subject: 'Rider' },
+  'rider.approve':       { ability: 'approve', subject: 'Rider' },
+  'rider.update':        { ability: 'update',  subject: 'Rider' },
+
+  'customer.suspend':    { ability: 'suspend', subject: 'Customer' },
+
+  'order.force_cancel':  { ability: 'update',  subject: 'Order' },
+  'order.force_status':  { ability: 'update',  subject: 'Order' },
+  'order.reassign':      { ability: 'update',  subject: 'Dispatch' },
+
+  'pricing.update':      { ability: 'update',  subject: 'Pricing' },
+  'zone.update':         { ability: 'update',  subject: 'Zone' },
+  'setting.update':      { ability: 'update',  subject: 'Setting' },
+  'catalogue.update':    { ability: 'update',  subject: 'Catalogue' },
+};
+
+/** Thrown for an action name that is not in the registry. */
+export class UnknownActionError extends Error {
+  constructor(action: string) {
+    super(`unknown admin action: ${action}`);
+    this.name = 'UnknownActionError';
+  }
+}
+
+/**
+ * What this action requires. Never trusts the caller.
+ */
+export function permissionFor(
+  action: string,
+): { ability: Action; subject: Subject } {
+  // Object.hasOwn, not a bare index.
+  //
+  // `ACTION_PERMISSIONS['constructor']` returns Object, and
+  // `ACTION_PERMISSIONS['__proto__']` returns a prototype — both truthy, so a
+  // bare lookup let those names pass the "is this a known action?" gate and
+  // reach the ability check with `ability: undefined`, whose behaviour is
+  // then whatever `can()` happens to do with undefined. Caught by fuzzing
+  // the registry rather than by reading it.
+  if (!Object.hasOwn(ACTION_PERMISSIONS, action)) {
+    throw new UnknownActionError(action);
+  }
+  const p = ACTION_PERMISSIONS[action];
+  if (!p || typeof p.ability !== 'string' || typeof p.subject !== 'string') {
+    throw new UnknownActionError(action);
+  }
+  return p;
+}
+
 export interface AuditEntry {
   actorUserId: string;
   actorRole: string;

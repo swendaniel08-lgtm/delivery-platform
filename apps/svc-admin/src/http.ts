@@ -26,7 +26,7 @@ import type { Principal, AdminRole } from '../../../libs/auth/src/abilities.ts';
 import {
   AuditedActionRunner, InMemoryAuditSink, evaluateAlarms, buildTask,
   REASON_REQUIRED_ACTIONS, MIN_REASON_LENGTH, TASK_PRIORITY,
-  type AuditSink, type AuditEntry, type DashboardMetrics, type TaskKind,
+  type AuditSink, type AuditEntry, type DashboardMetrics, type TaskKind, permissionFor,
 } from './audit.ts';
 
 export const RUNNER = Symbol('AUDIT_RUNNER');
@@ -185,7 +185,23 @@ export class AdminController {
     @Headers('user-agent') userAgent?: string,
   ) {
     const principal = this.principal(auth);
-    requireFields(body, ['action', 'ability', 'subject', 'entityType', 'entityId']);
+    // NOT 'ability' or 'subject'. Those are DERIVED from the action below.
+    // Accepting them from the body let a read_only admin authorise a refund
+    // by naming a harmless permission next to it.
+    requireFields(body, ['action', 'entityType', 'entityId']);
+
+    // The permission is decided by the server, from the action name.
+    let permission;
+    try {
+      permission = permissionFor(String(body.action));
+    } catch {
+      // An unregistered action is refused rather than defaulted: a new
+      // action must be a deliberate entry in the table, not something that
+      // inherits whatever happens to be permissive.
+      throw new ValidationError({
+        action: [`unknown action: ${String(body.action)}`],
+      });
+    }
 
     // Surface the requirement BEFORE attempting anything, so the UI can
     // show the reason box rather than bouncing the admin off an error.
@@ -201,8 +217,8 @@ export class AdminController {
       {
         principal,
         action: String(body.action),
-        ability: body.ability,
-        subject: body.subject,
+        ability: permission.ability,
+        subject: permission.subject,
         entityType: String(body.entityType),
         entityId: String(body.entityId),
         ...(body.record ? { record: body.record } : {}),

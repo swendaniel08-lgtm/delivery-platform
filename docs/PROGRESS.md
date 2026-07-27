@@ -1069,3 +1069,55 @@ records the authenticated subject.
 Mutation-tested: bypassing the ownership check turns 4 specs red.
 
 Specs: **882 TS unit (+14)**, 222 integration, 34 platform e2e, 548 Dart.
+
+## Session: exploit-first security audit (media, payments, admin)
+
+Continued the audit after the chat hole, attacking each surface against a
+running service rather than reading the code.
+
+### 1. media download — broken BOTH ways
+
+The check was `if (!decoded.includes(c.sub))` — a substring test on the
+object key. It failed in opposite directions simultaneously, which is why it
+survived review:
+
+- **Denied the owner.** `buildKey` embeds `ownerRef` (an ORDER id), not the
+  uploader, so the rider who took a proof photo got 403 reading it back.
+  Invisible because the app uploads and never re-reads.
+- **Granted an attacker.** `ownerRef` is client-supplied — upload once naming
+  yourself and every key containing that substring becomes readable. Verified:
+  `proof_of_delivery/evil/forged.jpg` returned 200.
+
+Fixed with a real ownership record (`media_objects` already had `uploader_id`
+and was never written to). Stranger and unknown key now both 404.
+
+### 2. payment webhook — clean
+
+Attacked with no signature, a forged one, sha256-instead-of-sha512, and a
+valid signature over a tampered body. All four rejected 401; genuine accepted.
+Signature is verified on the raw body before anything is parsed, using
+`timingSafeEqual`. **No change needed.**
+
+### 3. admin actions — privilege escalation
+
+`POST /admin/actions` required the caller to send `ability` and `subject`, and
+checked permissions against those. The caller chose which permission to
+verify:
+
+```
+read_only: {"action":"payment.refund","ability":"read","subject":"Report"}
+        -> 201, refund recorded
+```
+
+Fixed with a server-side `ACTION_PERMISSIONS` registry. An unregistered action
+is refused, never defaulted.
+
+**Found while fuzzing the fix:** `ACTION_PERMISSIONS['constructor']` returns
+`Object` and `['__proto__']` returns a prototype — both truthy, so those names
+passed the "known action?" gate and reached the ability check with
+`ability: undefined`. Now `Object.hasOwn` plus a shape check.
+
+All three fixes mutation-tested. Specs: **906 TS unit (+24)**.
+
+**Docker disappeared from the sandbox mid-session — the db and platform e2e
+suites could not be re-run after these changes and must be before release.**

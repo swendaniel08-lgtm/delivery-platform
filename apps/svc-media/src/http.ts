@@ -22,6 +22,9 @@ import {
   ValidationError, UnauthorizedError, ForbiddenError, NotFoundError,
 } from '../../../libs/platform/src/errors.ts';
 import {
+  MediaRepository, InMemoryMediaRepository, PgMediaRepository,
+} from './pg-media-repository.ts';
+import {
   MediaService, MEDIA_POLICY, KIND_ROLES, InMemoryStorage,
   UPLOAD_URL_TTL_SECONDS, DOWNLOAD_URL_TTL_SECONDS,
   kindFromKey, type StoragePort, type MediaKind,
@@ -29,6 +32,7 @@ import {
 
 export const MEDIA_SERVICE = Symbol('MEDIA_SERVICE');
 export const VERIFY_TOKEN = Symbol('MEDIA_VERIFY_TOKEN');
+export const MEDIA_REPO = Symbol('MEDIA_REPO');
 
 export interface Claims { sub: string; role: string }
 export type VerifyToken = (token: string) => Claims;
@@ -45,6 +49,7 @@ function requireFields(body: any, fields: string[]): void {
 export class MediaController {
   constructor(
     @Inject(MEDIA_SERVICE) private readonly media: MediaService,
+    @Inject(MEDIA_REPO) private readonly repo: MediaRepository,
     @Inject(VERIFY_TOKEN) private readonly verify: VerifyToken,
   ) {}
 
@@ -75,6 +80,23 @@ export class MediaController {
       // Scopes the object path. Defaults to the uploader so a key always
       // carries an owner, which is what the download check relies on.
       ownerRef: String(body.ownerRef ?? body.orderId ?? c.sub),
+    });
+
+    // Record WHO this object belongs to, at the moment the URL is issued.
+    // The download check reads this row; without it the only thing available
+    // to authorise against is the key itself, which the client named.
+    await this.repo.record({
+      objectKey: upload.objectKey,
+      kind: String(body.kind),
+      ownerRef: String(body.ownerRef ?? body.orderId ?? c.sub),
+      uploaderId: c.sub,
+      uploaderRole: c.role,
+      contentType: String(body.contentType),
+      sizeBytes: Number(body.sizeBytes),
+      isPublic: upload.publicUrl !== null,
+      expiresAt: this.media.expiredBefore(body.kind as MediaKind) === null
+        ? null
+        : new Date(Date.now() + retentionMs(body.kind as MediaKind)),
     });
 
     return {
@@ -110,9 +132,21 @@ export class MediaController {
       if (kind.startsWith('kyc_')) {
         throw new ForbiddenError('This document can only be viewed by an administrator');
       }
-      // Everything else private is readable only by its uploader. The key
-      // embeds the uploader id (see buildKey).
-      if (!decoded.includes(c.sub)) throw new ForbiddenError('Not your object');
+
+      // Ownership comes from the RECORD, not from the key.
+      //
+      // This used to be `decoded.includes(c.sub)`, which was wrong twice
+      // over: buildKey embeds ownerRef (usually an order id) rather than the
+      // uploader, so the rider who took the photo was denied their own
+      // object — and ownerRef is client-supplied, so anyone who uploaded once
+      // naming themselves could read every key containing that substring.
+      const record = await this.repo.find(decoded);
+
+      // Unknown key and someone else's key get the SAME answer. Confirming
+      // that an object exists is itself a leak when the key encodes an order.
+      if (!record || record.uploaderId !== c.sub) {
+        throw new NotFoundError('Object');
+      }
     }
 
     return {
@@ -139,9 +173,16 @@ export class MediaController {
   }
 }
 
+/** Retention window for a kind, in milliseconds. */
+function retentionMs(kind: MediaKind): number {
+  const days = MEDIA_POLICY[kind]?.retentionDays ?? 0;
+  return days * 86_400_000;
+}
+
 export interface MediaDeps {
   pool?: Pool | null;
   storage?: StoragePort;
+  repository?: MediaRepository;
   verifyToken?: VerifyToken;
 }
 
@@ -155,6 +196,16 @@ export class MediaHttpModule {
       controllers: [MediaController],
       providers: [
         { provide: MEDIA_SERVICE, useValue: new MediaService(storage) },
+        {
+          provide: MEDIA_REPO,
+          // A pool means PERSIST. Without one the in-memory record still
+          // enforces ownership within a process, which is what the specs
+          // exercise; production always has a pool.
+          useValue: deps.repository
+            ?? (deps.pool
+              ? new PgMediaRepository(deps.pool)
+              : new InMemoryMediaRepository()),
+        },
         {
           provide: VERIFY_TOKEN,
           useValue: deps.verifyToken ?? (() => {
